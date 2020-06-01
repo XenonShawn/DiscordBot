@@ -294,7 +294,7 @@ class todo(commands.Cog):
         for i in range(1, min(6, l + 1)):
             if highscore[i-1][1] == 0:
                 if i == 1:
-                    result = f"No one has a score in this server."
+                    result = f"No one in this server has a score yet for today."
                 break
             result += f"{i}: {self.bot.get_user(highscore[i-1][0])} with {highscore[i-1][1]} points\n"
         await ctx.send(result)
