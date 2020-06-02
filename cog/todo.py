@@ -154,7 +154,7 @@ class todo(commands.Cog):
         await ctx.send(result + f"Your current score for today is {self.score[server_id][user_id][day]}.")
     
     @commands.command()
-    async def clear(self, ctx):
+    async def cleartodo(self, ctx):
         """Clears the entire todo list of the user.
 
         Example: $clear"""
@@ -238,7 +238,7 @@ class todo(commands.Cog):
         Takes in a `discord.User` argument."""
         server_id, user_id, _ = self.score_helper(ctx, user_id)
         day = date.today() - timedelta(days=float(num_days))
-        return self.score[server_id][user_id][day]
+        return self.score[server_id][user_id].get(day, 0)
 
     @commands.command(name='score')
     async def _score(self, ctx, num_days: int = 0, user: discord.User = None):
@@ -254,14 +254,14 @@ class todo(commands.Cog):
             return await ctx.send("The number of days has to be non-negative.")
         if num_days == 0:
             if user is None:
-                return await ctx.send(f"You have a score of {self.view_score(ctx, 0, ctx.author.id)}.")
+                return await ctx.send(f"You have a score of {self.view_score(ctx, 0, ctx.author.id)} today.")
             else:
-                return await ctx.send(f"{user} has a score of {self.view_score(ctx, 0, user.id)}")
+                return await ctx.send(f"{user} has a score of {self.view_score(ctx, 0, user.id)} today.")
         else:
             if user is None:
-                return await ctx.send(f"You had a score of {self.view_score(ctx, num_days, ctx.author.id)} {num_days} ago.")
+                return await ctx.send(f"You had a score of {self.view_score(ctx, num_days, ctx.author.id)} {num_days} days ago.")
             else:
-                return await ctx.send(f"{user} had a score of {self.view_score(ctx, num_days, user.id)} {num_days} ago.")
+                return await ctx.send(f"{user} had a score of {self.view_score(ctx, num_days, user.id)} {num_days} days ago.")
 
     @commands.command()
     async def highscore(self, ctx, num_days: int = 0):
@@ -305,6 +305,16 @@ class todo(commands.Cog):
         """Owner-only command for debugging purposes."""
         print(self.storage)
         print(self.score)
+    
+    @commands.command()
+    @commands.has_permissions(manage_guild=True)
+    async def change_score(self, ctx, num: int, user: discord.User, days_ago: int = 0):
+        if days_ago < 0:
+            return await ctx.send("Number of days ago should be non-negative.")
+        server_id, user_id, today = self.score_helper(ctx, user.id)
+        day = today - timedelta(days=days_ago)
+        self.score[server_id][user_id][day] = self.score[server_id][user_id].get(day, 0) + num
+        return await ctx.send(f"{user}'s score on {day} is now {self.score[server_id][user_id][day]}.")
 
 def setup(bot):
     bot.add_cog(todo(bot))
