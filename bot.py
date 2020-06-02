@@ -1,80 +1,75 @@
 import discord
 from discord.ext import commands
 from os import listdir
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 bot = commands.Bot(command_prefix='$')
-token = 'xxx'
-
-async def is_owner(ctx):
-    return ctx.author.id == xxx
+token = "INSERT TOKEN HERE"
 
 @bot.event
 async def on_ready():
     await bot.change_presence(activity=discord.Game("Use $help!"))
     print(f"We have logged in as {bot.user}!")
 
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        return await ctx.send("You do not have the permissions to use this command.")
+    if isinstance(error, commands.MissingRequiredArgument):
+        return await ctx.send("Missing required arguments for command. Use $help [command] for example usage.")
+    if isinstance(error, commands.errors.BadArgument):
+        return await ctx.send(error)
+    print(type(error), error)
+    raise(error)
+
 # Commands to load cogs
 
 @bot.command(help="Administrative command used to load a cog.")
-@commands.check(is_owner)
+@commands.is_owner()
 async def load(ctx: commands.Context, extension):
+    print(f"Request by {ctx.author}: Load cog {extension}.")
     try:
         bot.load_extension(f'cogs.{extension}')
-        print(f"Request by {ctx.author}: Loaded cog {extension}.")
         await ctx.send(f"Loaded cog {extension}.")
-    except:
+    except commands.ExtensionError as e:
         await ctx.send(f"Failed to load cog {extension}")
+        print(e)
 
 @bot.command(help="Administrative command used to unload a cog.")
-@commands.check(is_owner)
+@commands.is_owner()
 async def unload(ctx: commands.Context, extension):
+    print(f"Request by {ctx.author}: Unload cog {extension}.")
     try:
         bot.unload_extension(f'cogs.{extension}')
-        print(f"Request by {ctx.author}: Unloaded cog {extension}.")
         await ctx.send(f"Unloaded cog {extension}")
-    except:
+    except commands.ExtensionNotLoaded as e:
         await ctx.send(f"Failed to unload cog {extension}")
+        print(e)
 
 @bot.command(help="Administrative command used to reload a cog.")
-@commands.check(is_owner)
+@commands.is_owner()
 async def reload(ctx: commands.Context, extension):
+    print(f"Request by {ctx.author}: Reload cog {extension}.")
     try:
         bot.unload_extension(f'cogs.{extension}')
-    except:
+    except commands.ExtensionNotLoaded as e:
         await ctx.send(f"Failed to unload cog {extension} during reload.")
+        print(e)
         return
     try:
         bot.load_extension(f'cogs.{extension}')
-        print(f"Request by {ctx.author}: Reloaded cog {extension}.")
         await ctx.send(f"Reloaded cog {extension}")
-    except:
+    except commands.ExtensionError as e:
         await ctx.send(f"Failed to load cog {extension} during reload.")
 
-async def error_message(ctx, error):
-    if isinstance(error, commands.CheckFailure):
-        await ctx.send("You do not have the permissions to use this command.")
-
-@load.error
-async def load_error(ctx, error):
-    await error_message(ctx, error)
-
-@unload.error
-async def unload_error(ctx, error):
-    await error_message(ctx, error)
-
-@reload.error
-async def reload_error(ctx, error):
-    await error_message(ctx, error)
-
-
-# Load all cogs upon initialisation of bot
-for filename in listdir('cogs'):
-    if filename.endswith('.py'):
-        try:
-            bot.load_extension(f'cogs.{filename[:-3]}')
-            print(f"Loaded cog {filename}.")
-        except:
-            print(f"Failed to load cog {filename}.")
-
-
+cogs_to_load = ['cogs.fun', 'cogs.utilities', 'cogs.todo']
+for filename in cogs_to_load:
+    try:
+        bot.load_extension(filename)
+        print(f"Loaded cog {filename}.")
+    except:
+        print(f"Failed to load cog {filename}.")
+        
 bot.run(token)
