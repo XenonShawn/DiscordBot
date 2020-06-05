@@ -195,7 +195,7 @@ class todo(commands.Cog):
         if l == 0:
             return await ctx.send("You have no existing todo list.")
 
-        to_delete = set() # Reprinted out in the end to remove repeated tasks
+        to_delete = list()
         failure = str()
         confirmation = "The following tasks will be deleted:\n"
 
@@ -210,28 +210,29 @@ class todo(commands.Cog):
                 continue
             if n not in to_delete:
                 confirmation += f"{n+1}: {self.storage[server_id][user_id][n]}\n"
-                to_delete.add(n)
+                to_delete.append(n)
         
+        if len(to_delete) == 0:
+            return await ctx.send(failure + "No valid tasks to delete.")
+
         # Double confirm deletions
         def correct_response(message):
             return message.author == ctx.author and message.content.upper() in ['Y','N']
 
         try:
             await ctx.send(failure + confirmation + "Are you sure you want to remove the above? (Y/N)")
-            response = await self.bot.wait_for('message', check=correct_response, timeout=min(len(to_delete) * 5, 10))
+            response = await self.bot.wait_for('message', check=correct_response, timeout=max(len(to_delete) * 5, 10))
         except asyncio.TimeoutError:
             return await ctx.send("No proper response detected. Remove request rejected.")
 
         if response.content.upper() == 'Y':
-            # Define a shift variable, as each time we pop a variable the index changes.
-            shift = 0
-            for index in to_delete:
-                self.storage[server_id][user_id].pop(index - shift)
-                shift += 1
-            await ctx.send("Cleared requested tasks.")
+            # Sort in reverse order so index remains the same
+            for index in sorted(to_delete, reverse=True):
+                self.storage[server_id][user_id].pop(index)
+            await ctx.send("Removed requested tasks.")
             await ctx.send(self.view_todo_list(ctx, server_id, user_id))
         else:
-            return await ctx.send("Clear request cancelled.")
+            return await ctx.send("Remove request cancelled.")
 
     def view_score(self, ctx, num_days: int, user_id: int):
         """Helper function to return the score of a user `num_days` ago.
