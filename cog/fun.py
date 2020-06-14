@@ -1,6 +1,8 @@
 import discord
 from discord.ext import commands
 import pickle
+import logging
+from os.path import join
 
 class fun(commands.Cog):
 
@@ -9,20 +11,21 @@ class fun(commands.Cog):
         self.emoji = emoji
         # Allowed reactions are stored by guild ID. The keys of the allowed_reacts dict is the guild ID,
         # with its value being the set of allowed reacts for that guild.
+        logging.info("Loading allowed_reacts.")
         try:
-            with open('allowed_reacts.pkl', 'rb') as f:
+            with open(join('pickleddata', 'allowed_reacts.pkl'), 'rb') as f:
                 self.allowed_reacts = pickle.load(f)
-            print("Loaded saved allowed_reacts")
+            logging.info("Loaded saved allowed_reacts.")
         except OSError as e:
-            print(e)
+            # Unable to find the file
+            logging.warning(f"{type(e)}: {e}")
             self.allowed_reacts = dict()
 
     def cog_unload(self):
-        # Special method, here used to save the allowed_reacts list
-        print("Saving fun cog before shutting down...")
-        with open('allowed_reacts.pkl', 'wb') as f:
+        logging.info("Saving fun cog before shutting down...")
+        with open(join('pickleddata', 'allowed_reacts.pkl'), 'wb') as f:
             pickle.dump(self.allowed_reacts, f, pickle.HIGHEST_PROTOCOL)
-        print("Saved allowed_reacts.")
+        logging.info("Saved allowed_reacts.")
 
     @commands.command()
     @commands.has_permissions(manage_guild=True)
@@ -154,7 +157,8 @@ emoji = {
     'y1': '🇾',
     'z1': '🇿',
     '!1': '❗',
-    '?1': '❓'
+    '?1': '❓',
+    ' 1': '🟦'
 }
 
 def setup(bot):
