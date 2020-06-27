@@ -13,7 +13,7 @@ class fun(commands.Cog):
         # with its value being the set of allowed reacts for that guild.
         logging.info("Loading allowed_reacts.")
         try:
-            with open(join('pickleddata', 'allowed_reacts.pkl'), 'rb') as f:
+            with open(join('data', 'allowed_reacts.pkl'), 'rb') as f:
                 self.allowed_reacts = pickle.load(f)
             logging.info("Loaded saved allowed_reacts.")
         except OSError as e:
@@ -23,7 +23,7 @@ class fun(commands.Cog):
 
     def cog_unload(self):
         logging.info("Saving fun cog before shutting down...")
-        with open(join('pickleddata', 'allowed_reacts.pkl'), 'wb') as f:
+        with open(join('data', 'allowed_reacts.pkl'), 'wb') as f:
             pickle.dump(self.allowed_reacts, f, pickle.HIGHEST_PROTOCOL)
         logging.info("Saved allowed_reacts.")
 
