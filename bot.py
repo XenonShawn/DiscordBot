@@ -1,50 +1,147 @@
-import discord
-from discord.ext import commands
-from os.path import join
 from datetime import datetime
 import logging
+from os.path import join
+import json
+import asyncio
 
-bot_startup = datetime.today()
-fn = bot_startup
+import discord
+from discord.ext import commands
+
+from config import token # Contains token = 'xxx'   
 
 logging.basicConfig(level=logging.INFO,
                     format='[%(asctime)s] [%(levelname)s] %(message)s',
                     datefmt='%d/%m/%Y %I:%M:%S %p',
                     handlers=[
                         # Send to both stderr and file at the same time
-                        logging.FileHandler(join('logs',f'{fn.day:02d}{fn.month:02d}{fn.year}.{fn.hour:02d}{fn.minute:02d}{fn.second:02d}.discordbot.log')),
+                        logging.FileHandler(join('logs',f'{datetime.today().date()}.discordbot.log')),
                         logging.StreamHandler()
                     ])
 
-del fn # Variable was used only to shorten the line above
+cogs_to_load = ['cogs.admin',
+                'cogs.fun', 
+                'cogs.utilities', 
+                'cogs.nssg', 
+                'cogs.games']
+
+################################################################################
+#                                XenonBot Class                                #
+################################################################################
+
+def command_prefixes(bot, msg):
+    if not msg.guild or msg.guild.id not in bot.guild_prefix:
+        prefix = ['$']
+    else:
+        prefix = [bot.guild_prefix[msg.guild.id]]
+    prefix.extend((f'<@{bot.user.id}> ', f'<@!{bot.user.id}> '))
+    return prefix
+
+class XenonBot(commands.Bot):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.uptime = None
+
+        # Load server prefixes
+        try: 
+            with open(join('data', 'guild_prefixes.json'), 'r') as f:
+                self.guild_prefix = {int(k): v for k, v in json.load(f)}
+            logging.info("Loaded server prefixes.")
+        except Exception as e:
+            logging.error(str(e))
+            logging.warning("Unable to load server prefixes. Servers which have"
+                            "set their prefixes will not be able to use them.")
+            self.guild_prefix = dict()
+
+        # Load blacklisted users
+        try:
+            with open(join('data', 'blacklist.json'), 'r') as f:
+                self.blacklist = set(json.load(f))
+            logging.info("Loaded blacklisted users")
+        except Exception as e:
+            logging.error(str(e))
+            logging.warning("Unable to load blacklisted users.")
+            self.blacklist = set() # set of user ids
+
+        # Load cogs
+        for filename in cogs_to_load:
+            try:
+                self.load_extension(filename)
+                logging.info(f"Loaded cog {filename}.")
+            except Exception as e:
+                logging.error(str(e))
+                logging.warning(f"Failed to load cog {filename}.")
+
+    ### Functions relating to guild prefixes ###
+
+    async def set_guild_prefix(self, ctx, prefix: str):
+        """Set the guild's command prefix."""
+        self.guild_prefix[ctx.guild.id] = prefix
+        return await ctx.send(f"The server prefix is now set to '{self.guild_prefix[ctx.guild.id]}'.")
+    
+    def get_guild_prefix(self, ctx):
+        """
+        Return the unique guild prefix. Duh.
+        Will be used more in the future when I implement my own help function.
+        """
+        return self.guild_prefix.get(ctx.guild.id, '$')
+
+    # Blacklist functions
+    async def blacklist_user(self, ctx, user: discord.User):
+        """Globally blacklist a user from using the bot."""
+        identity = user.id
+        if identity == self.owner_id:
+            return await ctx.send("The owner of the bot cannot be blacklisted.")
+        elif identity in self.blacklist:
+            return await ctx.send(f"{user} is already in the blacklist.")
+        else:
+            self.blacklist.add(identity)
+            logging.info(f"{user} blacklisted.")
+            return await ctx.send(f"{user} is now blacklisted.")
+
+    async def unblacklist_user(self, ctx, user: discord.User):
+        """Remove a user from the global blacklist."""
+        identity = user.id
+        if identity not in self.blacklist:
+            return await ctx.send(f"{user} is not in the global blacklist.")
+        else:
+            self.blacklist.remove(identity)
+            logging.info(f"{user} removed from global blacklist.")
+            return await ctx.send(f"{user} removed from the global blacklist.")
+
+    async def check_blacklist(self, ctx):
+        """Prints to console the users in the global blacklist."""
+        for user_id in self.blacklist:
+            print(user_id)
+
+    # Listeners
+    async def on_ready(self):
+        self.uptime = self.uptime or datetime.today()
+        await bot.change_presence(activity=discord.Game("Use help!"))
+        logging.info(f"We have logged in as {bot.user}!")
+
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.MissingPermissions) or isinstance(error, commands.NotOwner):
+            return await ctx.send("You do not have the permissions to use this command.")
+        if isinstance(error, commands.MissingRequiredArgument):
+            return await ctx.send("Missing required arguments for command. Use $help [command] for example usage.")
+        if isinstance(error, commands.errors.BadArgument):
+            return await ctx.send(error)
+        if isinstance(error, commands.NoPrivateMessage):
+            return await ctx.send(error)
+        logging.error(f"{type(error)}: {error}")
+        raise(error)
+
+    async def on_message(self, message):
+        if message.author.bot or message.author.id in self.blacklist:
+            return
+        await self.process_commands(message)
+
 
 logging.info("Starting up the bot.")
-bot = commands.Bot(command_prefix='$')
-token = 'INSERT TOKEN HERE'
+bot = XenonBot(command_prefix=command_prefixes)
 
-@bot.event
-async def on_ready():
-    await bot.change_presence(activity=discord.Game("Use $help!"))
-    logging.info(f"We have logged in as {bot.user}!")
-
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions) or isinstance(error, commands.NotOwner):
-        return await ctx.send("You do not have the permissions to use this command.")
-    if isinstance(error, commands.MissingRequiredArgument):
-        return await ctx.send("Missing required arguments for command. Use $help [command] for example usage.")
-    if isinstance(error, commands.errors.BadArgument):
-        return await ctx.send(error)
-    logging.error(f"{type(error)}: {error}")
-    raise(error)
-
-@bot.command()
-async def uptime(ctx):
-    """Return the uptime of the bot."""
-    delta = datetime.today() - bot_startup
-    return await ctx.send(f"{delta.days} days, {delta.seconds // 3600} hours, {delta.seconds // 60 % 60} minutes and {delta.seconds % 60} seconds")
-
-# Commands to load cogs
+### Commands to load cogs ###
 
 @bot.command(hidden=True)
 @commands.is_owner()
@@ -59,7 +156,7 @@ async def load(ctx, extension):
         logging.error(f"Request to load cog {extension} unsuccessful. Error Type: {type(e)}.\nError Message: {e}")
         return await ctx.send(f"Failed to load cog {extension}. Error Type: {type(e)}.\nError Message: {e}")
 
-@bot.command()
+@bot.command(hidden=True)
 @commands.is_owner()
 async def unload(ctx, extension):
     """Owner only administrative command used to unload a cog."""
@@ -72,7 +169,7 @@ async def unload(ctx, extension):
         logging.error(f"Request to unload cog {extension} unsuccessful. Error Type: {type(e)}.\nError Message: {e}")
         return await ctx.send(f"Failed to unload cog {extension}. Error Type: {type(e)}.\nError Message: {e}")
 
-@bot.command()
+@bot.command(hidden=True)
 @commands.is_owner()
 async def reload(ctx, extension):
     """Owner only administrative command used to reload a cog."""
@@ -85,12 +182,24 @@ async def reload(ctx, extension):
         logging.error(f"Request to reload cog {extension} unsuccessful. Error Type: {type(e)}.\nError Message: {e}")
         return await ctx.send(f"Failed to reload cog {extension}. Error Type: {type(e)}.\nError Message: {e}")
 
-cogs_to_load = ['cogs.fun', 'cogs.utilities']
-for filename in cogs_to_load:
-    try:
-        bot.load_extension(filename)
-        logging.info(f"Loaded cog {filename}.")
-    except:
-        logging.error(f"Failed to load cog {filename}.")
-        
 bot.run(token)
+
+################################################################################
+#                                 Cleanup Code                                 #
+################################################################################
+
+try:
+    with open(join('data', 'guild_prefix.json'), 'w') as f:
+        json.dump(bot.guild_prefix, f)
+    logging.info("Saved server prefixes.")
+except Exception as e:
+    logging.error(str(e))
+    logging.warning("Unable to save server prefixes!")
+
+try:
+    with open(join('data', 'blacklist.json'), 'w') as f:
+        json.dump(list(bot.blacklist), f)
+    logging.info("Saved blacklist.")
+except Exception as e:
+    logging.error(str(e))
+    logging.warning("Unable to save blacklist!")
