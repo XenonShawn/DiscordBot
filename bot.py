@@ -3,6 +3,7 @@ import logging
 from os.path import join
 import json
 import asyncio
+import sqlite3
 
 import discord
 from discord.ext import commands
@@ -44,7 +45,7 @@ class XenonBot(commands.Bot):
 
         # Load server prefixes
         try: 
-            with open(join('data', 'guild_prefixes.json'), 'r') as f:
+            with open(join('data', 'guild_prefix.json'), 'r') as f:
                 self.guild_prefix = {int(k): v for k, v in json.load(f)}
             logging.info("Loaded server prefixes.")
         except Exception as e:
@@ -117,7 +118,7 @@ class XenonBot(commands.Bot):
     # Listeners
     async def on_ready(self):
         self.uptime = self.uptime or datetime.today()
-        await bot.change_presence(activity=discord.Game("Use help!"))
+        await bot.change_presence(activity=discord.Game("Use $help!"))
         logging.info(f"We have logged in as {bot.user}!")
 
     async def on_command_error(self, ctx, error):
