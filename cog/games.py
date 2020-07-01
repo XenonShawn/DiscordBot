@@ -33,7 +33,7 @@ class Games(commands.Cog):
         self.bot = bot
         self.embed_pooling = defaultdict(bool) # Used to group edits to embeds together. See embed_editor_helper
         self.games_info = defaultdict(gamesDict)
-        self.prefix = self.bot.get_unique_guild_prefixes # Used in help commands
+        self.prefix = self.bot.get_guild_prefix # Used in help commands
         logging.info("Attempting to load designated games channel.")
         try:
             with open(join('data', 'games_data.pkl'), 'rb') as f:
@@ -106,6 +106,13 @@ class Games(commands.Cog):
             result += f"{self.bot.get_user(lst[i][0])} - {lst[i][1]} points\n"
         return await ctx.send(result)
 
+    @commands.command()
+    @commands.has_guild_permissions(manage_guild=True)
+    async def change_socre(self, ctx, num: int, *, user: discord.Member):
+        """Change the score of a specified user."""
+        self.data[ctx.guild.id]['score'][user.id] += num
+        return await ctx.send(f"{user}'s score has been changed to {self.data[ctx.guild.id]['score'][user.id]}.")
+        
     ############################################################################
     #              Commands relating to helper function for games              #
     ############################################################################
@@ -156,8 +163,8 @@ class Games(commands.Cog):
                 player_count = len(self.games_info[guild][2])
                 # Check if number of players fits the requirement
                 if player_count >= minimum and player_count <= maximum:
+                    self.games_info[guild][1] = False # Ensure that number of players don't change
                     await ctx.send(f"Request by {user}: Starting Game")
-                    self.games_info[guild][1] = False
                     return True
                 else:
                     await ctx.send(f"Recevied request to start game by {user}, but number of players does not meet requirement.")
@@ -330,6 +337,6 @@ class Games(commands.Cog):
         
         return await self.finish_game(ctx, scoreboard)
 
-        
+
 def setup(bot):
     bot.add_cog(Games(bot))
