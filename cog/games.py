@@ -132,7 +132,7 @@ class Games(commands.Cog):
                 raise GamesError("Games can only be played in the designated channel.")                
     
     def _existing_game(self, ctx):
-        if self.games_info[ctx.guild.id][0]:
+        if self.games_info[ctx.guild.id][1]:
             raise GamesError("Only one game can be played at a time.")
 
     async def signups_helper(self, ctx, game: str, minimum: int=2, maximum: int=50, rounds: int=1) -> bool:
@@ -422,21 +422,22 @@ class Games(commands.Cog):
                 message = await self.bot.wait_for('message', check=hangman_check, timeout=120)
             except asyncio.TimeoutError:
                 result = 'timeout'; break
-
-            if message.content == choice:
+            
+            content = message.content.lower()
+            if content == choice:
                 result = 'win'; break
 
             # If not, then the message was an unguessed character
-            guessed.add(message.content)
+            guessed.add(content)
             if guessed.issuperset(comparison):
                 result = 'win'; break
 
             # If not, then the game has not ended
-            status = message.content in comparison
+            status = content in comparison
             if status:
-                description = f"{message.author}'s guessed a letter `{message.content}`!"
+                description = f"{message.author}'s guessed a letter `{content}`!"
             else:
-                description = f"{message.author}'s guess of letter `{message.content}` is wrong!"
+                description = f"{message.author}'s guess of letter `{content}` is wrong!"
         
         if result == "win":
             await ctx.send(f"{message.author} guessed the word! It was `{choice}`!")
@@ -447,6 +448,7 @@ class Games(commands.Cog):
         
         # Clear the database
         self.games_info[ctx.guild.id] = gamesDict()
+
         
 def setup(bot):
     bot.add_cog(Games(bot))
