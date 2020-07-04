@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 import logging
 import pickle as pkl
-from os.path import join
+from os.path import join, isfile
 from collections import defaultdict
 import asyncio
 import random
@@ -32,7 +32,7 @@ class Games(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.embed_pooling = defaultdict(bool) # Used to group edits to embeds together. See embed_editor_helper
-        self.games_info = defaultdict(gamesDict)
+        self.games_info = defaultdict(gamesDict) # Key is guild Id
         self.prefix = self.bot.get_guild_prefix # Used in help commands
         logging.info("Attempting to load designated games channel.")
         try:
@@ -130,13 +130,16 @@ class Games(commands.Cog):
         else:
             if ctx.channel.id != self.data[ctx.guild.id]['channel']:
                 raise GamesError("Games can only be played in the designated channel.")                
+    
+    def _existing_game(self, ctx):
+        if self.games_info[ctx.guild.id][0]:
+            raise GamesError("Only one game can be played at a time.")
 
     async def signups_helper(self, ctx, game: str, minimum: int=2, maximum: int=50, rounds: int=1) -> bool:
         """Helper function for signups. Returns `True` if game can start, `False` if cancelled. """
         guild = ctx.guild.id #`guild` is actually the guild's id, but using guild to shorten the variable
         # Check if there is an existing game
-        if self.games_info[guild][0]:
-            raise GamesError("Only one game can be played at a time.")
+        self._existing_game(ctx)
 
         # Creation of embed to start signups
         embed = discord.Embed(title=f"Game of '{game.capitalize()}' by {ctx.author}",
@@ -150,6 +153,10 @@ class Games(commands.Cog):
         for emoji in reactions:
             await self.games_info[guild][0].add_reaction(emoji)
         self.games_info[guild][1] = True
+        
+        # Not sure if it is a bug, but somehow the bot when it reacts the stop button,
+        # can stop the game. No idea how, but just to resolve it:
+        await asyncio.sleep(1)
 
         # Wait for signal to start or cancel game
         def stop_signups_check(reaction, user:discord.Member):
@@ -337,6 +344,109 @@ class Games(commands.Cog):
         
         return await self.finish_game(ctx, scoreboard)
 
+    @commands.command()
+    async def hangman(self, ctx: commands.Context):
+        """
+        Starts a game of Hangman, Singaporean style. No signups is required.
+        No points are given to the 'winner' of the game.
+        """
+        # Check if there is an existing game
+        self._existing_game(ctx)
+        self.games_info[ctx.guild.id][1] = True
 
+        # Check that words exist
+        path = join('.', 'data', 'words.txt')
+        if not isfile(path):
+            raise GamesError("No words.txt file detected in data folder.")
+
+        try:
+            with open(path, 'r') as f:
+                words = f.readlines()
+        except Exception:
+            raise
+        
+        self.games_info[ctx.guild.id][1] = True
+        choice = random.choice(words).strip().lower()
+        comparison = set(choice)
+        guessed = set()
+
+        def produce_embed(description, colour):
+            hangman = (
+                '💔💀',
+                '1️⃣😭', 
+                '2️⃣😢', 
+                '3️⃣😠',
+                '4️⃣😓',
+                '5️⃣😅',
+                '6️⃣😄'
+            )
+            embed = discord.Embed(title="Game of Hangman", description=description, color=colour)
+            n = 6 - len(guessed - comparison) # Number of chances left
+            embed.add_field(name=hangman[n] + f" {n} chances left!",
+                            value=f"`{' '.join(guessed)}`")
+            return (embed, n)
+        
+        colour = {
+            True: discord.Colour.green(), # True meaning correct response
+            False: discord.Colour.red() # False meaning incorrect response
+        }
+        status = True
+        description = "Game started!"
+
+        while True:
+            display_words = '\n`'
+            for letter in choice:
+                if letter in guessed or not letter.isalpha():
+                    display_words += f"{letter} "
+                else:
+                    display_words += "_ "
+            display_words = display_words[:-1] + '`'
+
+            embed, chances_left = produce_embed(description + display_words, colour[status])
+            await ctx.send(embed=embed)
+
+            if chances_left <= 0:
+                result = 'lose'; break
+
+            # Receive response
+            def hangman_check(message: discord.Message):
+                content = message.content.lower()
+                return (message.channel.id == self.data[ctx.guild.id]['channel'] 
+                        and (content == choice 
+                            or len(content) == 1 
+                                and content.isalpha() 
+                                and content not in guessed
+                            )
+                       )
+            try:
+                message = await self.bot.wait_for('message', check=hangman_check, timeout=120)
+            except asyncio.TimeoutError:
+                result = 'timeout'; break
+
+            if message.content == choice:
+                result = 'win'; break
+
+            # If not, then the message was an unguessed character
+            guessed.add(message.content)
+            if guessed.issuperset(comparison):
+                result = 'win'; break
+
+            # If not, then the game has not ended
+            status = message.content in comparison
+            if status:
+                description = f"{message.author}'s guessed a letter `{message.content}`!"
+            else:
+                description = f"{message.author}'s guess of letter `{message.content}` is wrong!"
+        
+        if result == "win":
+            await ctx.send(f"{message.author} guessed the word! It was `{choice}`!")
+        elif result == "lose":
+            await ctx.send(f"You lost! The word was `{choice}`!")
+        elif result == "timeout":
+            await ctx.send(f"Timeout. The word was `{choice}`!")
+        
+        # Clear the database
+        self.games_info[ctx.guild.id] = gamesDict()
+        
 def setup(bot):
     bot.add_cog(Games(bot))
