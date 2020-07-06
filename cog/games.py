@@ -367,8 +367,12 @@ class Games(commands.Cog):
         
         self.games_info[ctx.guild.id][1] = True
         choice = random.choice(words).strip().lower()
-        comparison = set(choice)
         guessed = set()
+        comparison = set()
+        for letter in choice:
+            if letter.isalpha():
+                comparison.add(letter)
+        
 
         def produce_embed(description, colour):
             hangman = (
