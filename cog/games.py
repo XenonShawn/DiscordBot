@@ -435,12 +435,12 @@ class Games(commands.Cog):
             # If not, then the game has not ended
             status = content in comparison
             if status:
-                description = f"{message.author}'s guessed a letter `{content}`!"
+                description = f"`{message.author}`'s guessed a letter `{content}`!"
             else:
-                description = f"{message.author}'s guess of letter `{content}` is wrong!"
+                description = f"`{message.author}`'s guess of letter `{content}` is wrong!"
         
         if result == "win":
-            await ctx.send(f"{message.author} guessed the word! It was `{choice}`!")
+            await ctx.send(f"`{message.author}` guessed the word! It was `{choice}`!")
         elif result == "lose":
             await ctx.send(f"You lost! The word was `{choice}`!")
         elif result == "timeout":
