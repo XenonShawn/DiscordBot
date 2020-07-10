@@ -17,7 +17,8 @@ class PositiveInt(commands.Converter):
         except ValueError:
             raise commands.BadArgument("Argument provided is not a positive integer.")
 
-class GamesError(commands.errors.CommandError): pass
+class GamesError(commands.errors.CommandError):
+    pass
 
 def specialisedDict():
     return dict(channel=0, score=defaultdict(int))
@@ -27,7 +28,7 @@ def gamesDict():
             False,  # bool => Whether the game is accepting signups
             set()]  # set => Set of players who signed up for the game
 
-class Games(commands.Cog):
+class Games(commands.Cog, name='games'):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -54,7 +55,7 @@ class Games(commands.Cog):
             pkl.dump(dict(self.data), f)
         logging.info("Saved games information.")
 
-    @commands.command()
+    @commands.command(hidden=True)
     @commands.is_owner()
     async def check_games(self, ctx):
         """Owner-only command for debugging purposes."""
@@ -108,7 +109,7 @@ class Games(commands.Cog):
 
     @commands.command()
     @commands.has_guild_permissions(manage_guild=True)
-    async def change_socre(self, ctx, num: int, *, user: discord.Member):
+    async def changescore(self, ctx, num: int, *, user: discord.Member):
         """Change the score of a specified user."""
         self.data[ctx.guild.id]['score'][user.id] += num
         return await ctx.send(f"{user}'s score has been changed to {self.data[ctx.guild.id]['score'][user.id]}.")
@@ -453,6 +454,6 @@ class Games(commands.Cog):
         # Clear the database
         self.games_info[ctx.guild.id] = gamesDict()
 
-        
+
 def setup(bot):
     bot.add_cog(Games(bot))
