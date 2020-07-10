@@ -4,7 +4,7 @@ import pickle
 import logging
 from os.path import join
 
-class fun(commands.Cog):
+class Fun(commands.Cog, name='fun'):
 
     def __init__(self, bot):
         self.bot = bot
@@ -29,7 +29,7 @@ class fun(commands.Cog):
 
     @commands.command()
     @commands.has_permissions(manage_guild=True)
-    async def add_react(self, ctx: commands.Context, text: str):
+    async def addreact(self, ctx: commands.Context, text: str):
         """Adds allowed reacts to the allowed reacts list.
         Usable by users with "Manage Server" permissions only."""
         server = ctx.guild.id
@@ -42,7 +42,7 @@ class fun(commands.Cog):
 
     @commands.command()
     @commands.has_permissions(manage_guild=True)
-    async def remove_react(self, ctx, text: str):
+    async def removereact(self, ctx, text: str):
         """Removes allowed reacts from the allowed reacts list.
         Usable by users with "Manage Server" permissions only."""
         server = ctx.guild.id
@@ -162,4 +162,4 @@ emoji = {
 }
 
 def setup(bot):
-    bot.add_cog(fun(bot))
+    bot.add_cog(Fun(bot))

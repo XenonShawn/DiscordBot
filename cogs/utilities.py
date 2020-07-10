@@ -6,7 +6,7 @@ import pickle
 import logging
 from os.path import join
 
-class utility(commands.Cog):
+class Utility(commands.Cog, name='utilities'):
 
     def __init__(self, bot):
         self.bot = bot
@@ -26,6 +26,12 @@ class utility(commands.Cog):
         with open(join('data', 'agenda_storage.pkl'), 'wb') as f:
             pickle.dump(self.agenda_storage, f, pickle.HIGHEST_PROTOCOL)
         logging.info("Saved agenda_storage.")
+
+    @commands.command(hidden=True)
+    @commands.is_owner()
+    async def check_agenda(self, ctx):
+        """Owner-only command for debugging purposes."""
+        print(self.agenda_storage)
 
     @commands.command()
     @commands.has_permissions(manage_messages=True)
@@ -173,19 +179,12 @@ class utility(commands.Cog):
         else:
             return await ctx.send("Clear request cancelled.")
 
-    @commands.command()
+    @commands.command(aliases=['count_role', 'role_count'])
     @commands.has_permissions(manage_guild=True)
-    async def role_count(self, ctx, *, role: discord.Role):
-        """Return the number of people with the given role in the current server."""
+    async def countrole(self, ctx, *, role: discord.Role):
+        """Count the number of people with the given role in the current server."""
         return await ctx.send(f"{len(role.members)} member(s) have this role in this server.")
-    
-    @commands.command()
-    @commands.is_owner()
-    async def check_agenda(self, ctx):
-        """Owner-only command for debugging purposes."""
-        print(self.agenda_storage)
 
 
-        
 def setup(bot):
-    bot.add_cog(utility(bot))
+    bot.add_cog(Utility(bot))
