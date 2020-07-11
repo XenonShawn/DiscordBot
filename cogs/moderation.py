@@ -211,10 +211,21 @@ class Moderation(commands.Cog, name='moderation'):
         permissions = discord.Permissions.none()
         permissions.update(read_messages=True, read_message_history=True, send_messages=False)
         role = await ctx.guild.create_role(name='Bot Muted', permissions=permissions)
+        failure = str()
 
         # Set permissions for role in all channels
-        for channels in ctx.guild.channels:
-            await channels.set_permissions(role, send_messages=False)
+        for channel in ctx.guild.channels:
+            try:
+                await channel.set_permissions(role, send_messages=False)
+            except discord.HTTPException:
+                failure += f"channel, "
+                continue
+
+        if failure:
+            failure = "Unable to change permissions for these channels: " + failure[:-2]
+            while len(failure) > 2000:
+                await ctx.send(failure[:2000])
+                failure = failure[2000:]
 
         # Update settings
         self.c.execute("""INSERT INTO settings(guild_id, role_id) VALUES (?, ?)
