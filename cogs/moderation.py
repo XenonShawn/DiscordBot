@@ -137,8 +137,6 @@ class Moderation(commands.Cog, name='moderation'):
     async def cog_command_error(self, ctx, error):
         if isinstance(error, ModerationError) or isinstance(error, discord.HTTPException):
             return await ctx.send(str(error))
-        if isinstance(error, commands.BadUnionArgument):
-            return await ctx.send(str(error))
     
     ############################################################################
     #                 Setting of Modlog Channel and Mute Roles                 #
