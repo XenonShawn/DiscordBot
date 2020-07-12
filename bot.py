@@ -3,7 +3,6 @@ import logging
 from os.path import join
 import json
 import asyncio
-import sqlite3
 
 import discord
 from discord.ext import commands
@@ -46,7 +45,7 @@ class XenonBot(commands.Bot):
         # Load server prefixes
         try: 
             with open(join('data', 'guild_prefix.json'), 'r') as f:
-                self.guild_prefix = {int(k): v for k, v in json.load(f)}
+                self.guild_prefix = {int(k): v for k, v in json.load(f).items()}
             logging.info("Loaded server prefixes.")
         except Exception as e:
             logging.error(str(e))
@@ -126,12 +125,14 @@ class XenonBot(commands.Bot):
             return await ctx.send("You do not have the permissions to use this command.")
         if isinstance(error, commands.MissingRequiredArgument):
             return await ctx.send("Missing required arguments for command. Use $help [command] for example usage.")
-        if isinstance(error, commands.errors.BadArgument):
+        if isinstance(error, commands.BadArgument) or isinstance(error, commands.BadUnionArgument):
             return await ctx.send(error)
         if isinstance(error, commands.NoPrivateMessage):
             return await ctx.send(error)
+        if isinstance(error, commands.BotMissingPermissions):
+            return await ctx.send(error)
         logging.error(f"{type(error)}: {error}")
-        raise(error)
+        raise error
 
     async def on_message(self, message):
         if message.author.bot or message.author.id in self.blacklist:
@@ -183,24 +184,25 @@ async def reload(ctx, extension):
         logging.error(f"Request to reload cog {extension} unsuccessful. Error Type: {type(e)}.\nError Message: {e}")
         return await ctx.send(f"Failed to reload cog {extension}. Error Type: {type(e)}.\nError Message: {e}")
 
-bot.run(token)
-
+try:
+    bot.run(token)
+    
 ################################################################################
 #                                 Cleanup Code                                 #
 ################################################################################
+finally:
+    try:
+        with open(join('data', 'guild_prefix.json'), 'w') as f:
+            json.dump(bot.guild_prefix, f)
+        logging.info("Saved server prefixes.")
+    except Exception as e:
+        logging.error(str(e))
+        logging.warning("Unable to save server prefixes!")
 
-try:
-    with open(join('data', 'guild_prefix.json'), 'w') as f:
-        json.dump(bot.guild_prefix, f)
-    logging.info("Saved server prefixes.")
-except Exception as e:
-    logging.error(str(e))
-    logging.warning("Unable to save server prefixes!")
-
-try:
-    with open(join('data', 'blacklist.json'), 'w') as f:
-        json.dump(list(bot.blacklist), f)
-    logging.info("Saved blacklist.")
-except Exception as e:
-    logging.error(str(e))
-    logging.warning("Unable to save blacklist!")
+    try:
+        with open(join('data', 'blacklist.json'), 'w') as f:
+            json.dump(list(bot.blacklist), f)
+        logging.info("Saved blacklist.")
+    except Exception as e:
+        logging.error(str(e))
+        logging.warning("Unable to save blacklist!")
