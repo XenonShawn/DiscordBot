@@ -103,7 +103,6 @@ class nssg(commands.Cog):
             return await self.update_members(reaction)
     
     async def update_members(self, reaction: discord.Reaction):
-        print(self.enlistmentmsgpooling.get(reaction.message, False))
         if self.enlistmentmsgpooling.get(reaction.message, False):
             return
         self.enlistmentmsgpooling[reaction.message] = True
