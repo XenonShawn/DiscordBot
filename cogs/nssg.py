@@ -4,6 +4,7 @@ import pickle
 import logging
 from os.path import join
 from datetime import date as date_
+import asyncio
 
 class nssg(commands.Cog):
 
@@ -18,6 +19,8 @@ class nssg(commands.Cog):
             # Unable to find the file
             logging.warning(f"{type(e)}: {e}")
             self.ord_dates = dict()
+        self.enlistmentmessages = set()
+        self.enlistmentmsgpooling = dict()
 
     def cog_unload(self):
         logging.info("Saving NSSG cog before shutting down...")
@@ -51,13 +54,73 @@ class nssg(commands.Cog):
 
         elif len(date) == 3:
             try:
-                self.ord_dates[ctx.author.id] = date_(date[2], date[1], date[0])
-                return await ctx.send(f"Your ORD is set to {date[0]:02d}/{date[1]:02d}/{date[2]}")
+                year = date[2] if date[2] > 50 else date[2] + 2000
+                self.ord_dates[ctx.author.id] = date_(year, date[1], date[0])
+                return await ctx.send(f"Your ORD is set to {date[0]:02d}/{date[1]:02d}/{year}")
             except ValueError as e:
                 return await ctx.send(str(e).capitalize())
         else:
             await ctx.send("Inproper parameters to set your ORD. Use $ord [day] [month] [year] to set your ORD.")
-        
+
+    @commands.command()
+    @commands.has_guild_permissions(manage_guild=True)
+    @commands.bot_has_guild_permissions(manage_messages=True)
+    async def enlistment(self, ctx, *, text: str):
+        """
+        Create an enlistment message.
+        """
+        await ctx.message.delete()
+
+        embed = discord.Embed(title=f"Enlistment on {text}", colour=discord.Colour.green())
+        embed.set_footer(text=f"React '😭' to add yourself to the list!")
+        message = await ctx.send(embed=embed)
+        await message.add_reaction('😭')
+
+        self.enlistmentmessages.add(message.id)
+
+    @commands.command()
+    @commands.has_guild_permissions(manage_guild=True)
+    async def stop(self, ctx, message: discord.Message):
+        """
+        Stop tracking an enlistment message.
+        """
+        if message.id not in self.enlistmentmessages:
+            return await ctx.send("No such enlistment message found.")
+        await ctx.message.delete()
+
+        embed = message.embeds[0].set_footer(text="Stopped tracking.")
+        await message.edit(embed=embed)
+        self.enlistmentmessages.remove(message.id)
+
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        if reaction.message.id in self.enlistmentmessages and reaction.emoji == '😭':
+            return await self.update_members(reaction)
+    
+    @commands.Cog.listener()
+    async def on_reaction_remove(self, reaction, user):
+        if reaction.message.id in self.enlistmentmessages and reaction.emoji == '😭':
+            return await self.update_members(reaction)
+    
+    async def update_members(self, reaction: discord.Reaction):
+        print(self.enlistmentmsgpooling.get(reaction.message, False))
+        if self.enlistmentmsgpooling.get(reaction.message, False):
+            return
+        self.enlistmentmsgpooling[reaction.message] = True
+    
+        embeddict = reaction.message.embeds[0].to_dict()
+        content = str()
+        async for user in reaction.users():
+            if user == self.bot.user:
+                continue
+            content += f"{user}\n"
+            if len(content) > 2000:
+                content = content[:-len(f"{user}\n")] + "..."
+                break
+        embeddict['description'] = content
+        await reaction.message.edit(embed=discord.Embed.from_dict(embeddict))
+        self.enlistmentmsgpooling[reaction.message] = False
+
 
 def setup(bot):
     bot.add_cog(nssg(bot))
