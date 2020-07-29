@@ -72,7 +72,7 @@ class nssg(commands.Cog):
         await ctx.message.delete()
 
         embed = discord.Embed(title=f"Enlistment on {text}", colour=discord.Colour.green())
-        embed.set_footer(text=f"React '😭' to add yourself to the list!")
+        embed.set_footer(text="React '😭' to add yourself to the list!")
         message = await ctx.send(embed=embed)
         await message.add_reaction('😭')
 
@@ -88,37 +88,64 @@ class nssg(commands.Cog):
             return await ctx.send("No such enlistment message found.")
         await ctx.message.delete()
 
-        embed = message.embeds[0].set_footer(text="Stopped tracking.")
-        await message.edit(embed=embed)
+        embeddict = message.embeds[0].to_dict()
+        embeddict['footer']['text'] = "Stopped tracking."
+        embeddict['color'] = discord.Colour.red().value
+        await message.edit(embed=discord.Embed.from_dict(embeddict))
         self.enlistmentmessages.remove(message.id)
 
+    @commands.command()
+    @commands.has_guild_permissions(manage_guild=True)
+    async def restart(self, ctx, message: discord.Message):
+        """
+        Restart tracking for an enlistment message.
+        """
+        if (message.author != self.bot.user or len(message.embeds) != 1 
+            or not message.embeds[0].title.startswith("Enlistment on ")):
+            return await ctx.send("Not an enlistment message")
+        
+        embeddict = message.embeds[0].to_dict()
+        embeddict['footer']['text'] = "React '😭' to add yourself to the list!"
+        embeddict['color'] = discord.Colour.green().value
+        await message.edit(embed=discord.Embed.from_dict(embeddict))
+
+        self.enlistmentmessages.add(message.id)
+
     @commands.Cog.listener()
-    async def on_reaction_add(self, reaction, user):
-        if reaction.message.id in self.enlistmentmessages and reaction.emoji == '😭':
-            return await self.update_members(reaction)
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if payload.message_id in self.enlistmentmessages and payload.emoji.name == '😭':
+            return await self.update_members(payload)
     
     @commands.Cog.listener()
-    async def on_reaction_remove(self, reaction, user):
-        if reaction.message.id in self.enlistmentmessages and reaction.emoji == '😭':
-            return await self.update_members(reaction)
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        if payload.message_id in self.enlistmentmessages and payload.emoji.name == '😭':
+            return await self.update_members(payload)
     
-    async def update_members(self, reaction: discord.Reaction):
-        if self.enlistmentmsgpooling.get(reaction.message, False):
-            return
-        self.enlistmentmsgpooling[reaction.message] = True
-    
-        embeddict = reaction.message.embeds[0].to_dict()
-        content = str()
-        async for user in reaction.users():
-            if user == self.bot.user:
-                continue
-            content += f"{user}\n"
-            if len(content) > 2000:
-                content = content[:-len(f"{user}\n")] + "..."
-                break
-        embeddict['description'] = content
-        await reaction.message.edit(embed=discord.Embed.from_dict(embeddict))
-        self.enlistmentmsgpooling[reaction.message] = False
+    async def update_members(self, payload: discord.RawReactionActionEvent):
+        try:
+            if self.enlistmentmsgpooling.get(payload.message_id, False):
+                return
+            self.enlistmentmsgpooling[payload.message_id] = True
+        
+            channel = self.bot.get_channel(payload.channel_id)
+            message = await channel.fetch_message(payload.message_id)
+            # Technically the above can result in None, but it shouldn't happen
+
+            embeddict = message.embeds[0].to_dict()
+            content = str()
+
+            # Correct reaction should be in slot 0
+            async for user in message.reactions[0].users():
+                if user == self.bot.user:
+                    continue
+                content += f"{user}\n"
+                if len(content) > 2000:
+                    content = content[:-len(f"{user}\n")] + "..."
+                    break
+            embeddict['description'] = content
+            await message.edit(embed=discord.Embed.from_dict(embeddict))
+        finally:
+            self.enlistmentmsgpooling[payload.message_id] = False
 
 
 def setup(bot):
