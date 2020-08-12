@@ -2,7 +2,8 @@ import discord
 from discord.ext import commands
 import logging
 import pickle as pkl
-from os.path import join, isfile
+from os.path import join, isfile, isdir
+from os import listdir
 from collections import defaultdict
 import asyncio
 import random
@@ -346,34 +347,24 @@ class Games(commands.Cog, name='games'):
         return await self.finish_game(ctx, scoreboard)
 
     @commands.command()
-    async def hangman(self, ctx: commands.Context):
+    async def hangman(self, ctx: commands.Context, category = None):
         """
         Starts a game of Hangman, Singaporean style. No signups is required.
         No points are given to the 'winner' of the game.
         """
         # Check if there is an existing game
         self._existing_game(ctx)
-        self.games_info[ctx.guild.id][1] = True
 
-        # Check that words exist
-        path = join('.', 'data', 'words.txt')
-        if not isfile(path):
-            raise GamesError("No words.txt file detected in data folder.")
-
-        try:
-            with open(path, 'r') as f:
-                words = f.readlines()
-        except Exception:
-            raise
-        
+        # Get hangman word from category
+        choice = self.hangman_choose(category)
         self.games_info[ctx.guild.id][1] = True
-        choice = random.choice(words).strip().lower()
         guessed = set()
         comparison = set()
         for letter in choice:
             if letter.isalpha():
                 comparison.add(letter)
         
+        category = category.capitalize() if category else "Random"
 
         def produce_embed(description, colour):
             hangman = (
@@ -385,7 +376,7 @@ class Games(commands.Cog, name='games'):
                 '5️⃣😅',
                 '6️⃣😄'
             )
-            embed = discord.Embed(title="Game of Hangman", description=description, color=colour)
+            embed = discord.Embed(title=f"Game of Hangman ({category})", description=description, color=colour)
             n = 6 - len(guessed - comparison) # Number of chances left
             embed.add_field(name=hangman[n] + f" {n} chances left!",
                             value=f"`{' '.join(guessed)}`")
@@ -453,6 +444,42 @@ class Games(commands.Cog, name='games'):
         
         # Clear the database
         self.games_info[ctx.guild.id] = gamesDict()
+
+    def hangman_choose(self, category: str):
+        """Helper function to choose a word for hangman based on category."""
+
+        path = join('.', 'data', 'hangman')
+        if not isdir(path):
+            raise GamesError("No hangman folder detected in data folder.")
+        
+        if category is None:
+            # Check that there is at least one text file
+            categories = [f for f in listdir(path) if f.endswith('.txt')]
+            if not len(categories):
+                raise GamesError("No text files detect in hangman folder.")
+            path = join(path, random.choice(categories))
+        else:
+            # Check that the category text file exists
+            path = join(path, category + '.txt')
+            if not isfile(path):
+                raise GamesError("That category does not exist.")
+
+        with open(path, 'r') as f:
+            words = f.readlines()
+        return random.choice(words).strip().lower()
+
+    @commands.command()
+    async def hangmanlist(self, ctx):
+        """Shows the list of available hangman categories."""
+        path = join('.', 'data', 'hangman')
+        if not isdir(path):
+            raise GamesError("No hangman folder detected in data folder.")
+        categories = [f[:-4] for f in listdir(path) if f.endswith('.txt')]
+
+        embed = discord.Embed(title="Hangman Categories",
+                              description='\n'.join(categories), 
+                              color=discord.Colour.blue())
+        await ctx.send(embed=embed)
 
 
 def setup(bot):
