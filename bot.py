@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 import logging
 from os.path import join
 import json
@@ -86,6 +86,15 @@ class EmbedHelpCommand(commands.HelpCommand):
         await self.get_destination().send(embed=embed)
 
     send_command_help = send_group_help
+
+def adapt_date(date: date):
+    return date.isoformat()
+
+def convert_date(s):
+    return date.fromisoformat(s.decode("utf-8"))
+
+sqlite3.register_adapter(date, adapt_date)
+sqlite3.register_converter("DATE", convert_date)
     
 class XenonBot(commands.Bot):
 
