@@ -9,25 +9,11 @@ import asyncio
 import discord
 from discord.ext import commands
 
-class Duration(commands.Converter):
-    """Convert the duration in the form of [number][unit] into minutes."""
-    async def convert(self, ctx, argument) -> int:
-        try:
-            value = int(argument[:-1])
-            if value < 1:
-                raise ValueError
-        except ValueError:
-            raise commands.BadArgument("Value must be a positive integer, eg 7d")
+if __name__ == "cogs.moderation":
+    from cogs.helper import Duration, schedule_task, PositiveInt, smart_send
+else:
+    from helper import Duration, PositiveInt, schedule_task, smart_send
 
-        unit = argument[-1].lower()
-        if unit == 'm':
-            return value
-        elif unit == 'h':
-            return value * 60
-        elif unit == 'd':
-            return value * 1440
-        else:
-            raise commands.BadArgument("Unit must be 'm', 'h' or 'd' for minutes, hours and days respectively. Eg 7d")
 
 class BannedUser(commands.Converter):
     """Convert the ID into a user."""
@@ -41,16 +27,6 @@ class BannedUser(commands.Converter):
             raise commands.BadArgument("No banned user of such ID was found.")
         return banentry.user
 
-class PositiveInt(commands.Converter):
-    async def convert(self, ctx, argument):
-        try:
-            n = int(argument)
-            if n < 1:
-                raise ValueError
-            return n
-        except ValueError:
-            raise commands.BadArgument("Argument provided is not a positive integer.")
-
 class ModerationError(commands.CommandError):
     pass
 
@@ -59,33 +35,31 @@ class Moderation(commands.Cog, name='moderation'):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.loop = asyncio.get_event_loop()
-        self.conn = sqlite3.connect(join('.', 'data', 'moderation.db'), detect_types=sqlite3.PARSE_DECLTYPES)
-        self.c = self.conn.cursor()
+        self.con = self.bot.con
         self.ongoing = defaultdict(dict)
 
         # Ensure table exists
-        self.c.execute("""CREATE TABLE IF NOT EXISTS modlog (
-                          guild_id INTEGER NOT NULL,
-                          moderator TEXT NOT NULL,
-                          moderator_id INTEGER NOT NULL,
-                          user TEXT NOT NULL,
-                          user_id INTEGER NOT NULL,
-                          timestamp TIMESTAMP NOT NULL,
-                          type TEXT NOT NULL,
-                          duration INTEGER,
-                          reason TEXT,
-                          complete INTEGER NOT NULL)""")
-        
-        self.c.execute("""CREATE TABLE IF NOT EXISTS settings (
-                          guild_id INTEGER NOT NULL UNIQUE,
-                          channel_id INTEGER,
-                          role_id INTEGER)""")
+        self.con.execute("""CREATE TABLE IF NOT EXISTS modlog (
+                                guild_id        INTEGER NOT NULL,
+                                moderator       TEXT NOT NULL,
+                                moderator_id    INTEGER NOT NULL,
+                                user            TEXT NOT NULL,
+                                user_id         INTEGER NOT NULL,
+                                timestamp       TIMESTAMP NOT NULL,
+                                type            TEXT NOT NULL,
+                                duration        INTEGER,
+                                reason          TEXT,
+                                complete        INTEGER NOT NULL)""")
+                
+        self.con.execute("""CREATE TABLE IF NOT EXISTS moderationsettings (
+                                guild_id        INTEGER NOT NULL UNIQUE,
+                                channel_id      INTEGER,
+                                role_id         INTEGER)""")
 
         # Loads up the entire database and starts running tasks
         self.loop.create_task(self.restart_tasks())
     
     def cog_unload(self):
-        self.conn.close()
         for server in self.ongoing.values():
             for task in server.values():
                 task.cancel()
@@ -95,11 +69,9 @@ class Moderation(commands.Cog, name='moderation'):
             'mute': self.unmute_helper,
             'ban': self.unban_helper
         }
-        self.c.execute("""SELECT guild_id, user_id, timestamp, type, duration FROM modlog
-                          WHERE complete = 0
-                          ORDER BY timestamp""")
-        to_be_completed = self.c.fetchall()
-        for row in to_be_completed:
+        for row in self.con.execute("""SELECT guild_id, user_id, timestamp, type, duration FROM modlog
+                                            WHERE complete = 0
+                                            ORDER BY timestamp"""):
             # Check if still valid
             guild = self.bot.get_guild(row[0])
             if guild is None:
@@ -155,19 +127,19 @@ class Moderation(commands.Cog, name='moderation'):
     @modlogchannel.command(name='set')
     async def modlogchannel_set(self, ctx, *, textchannel: discord.TextChannel):
         """Set the modlog channel for the server."""
-        self.c.execute("""INSERT INTO settings(guild_id, channel_id) VALUES (?, ?)
-                            ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id""",
-                            (ctx.guild.id, textchannel.id))
-        self.conn.commit()
+        with self.con:
+            self.con.execute("""INSERT INTO moderationsettings(guild_id, channel_id) VALUES (?, ?)
+                                ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id""",
+                                (ctx.guild.id, textchannel.id))
         await ctx.send(f"Modlog channel set to: {textchannel.mention}")
     
     @modlogchannel.command(name='reset')
     async def modlogchannel_reset(self, ctx):
         """Reset this server's modlog channel."""
-        self.c.execute("""INSERT INTO settings(guild_id, channel_id) VALUES (?, NULL)
-                        ON CONFLICT(guild_id) DO UPDATE SET channel_id=NULL""",
-                        (ctx.guild.id,))
-        self.conn.commit()
+        with self.con:
+            self.con.execute("""INSERT INTO moderationsettings(guild_id, channel_id) VALUES (?, NULL)
+                            ON CONFLICT(guild_id) DO UPDATE SET channel_id=NULL""",
+                            (ctx.guild.id,))
         await ctx.send("Modlog channel set to: None")
 
     ### Role
@@ -178,26 +150,26 @@ class Moderation(commands.Cog, name='moderation'):
         """View the existing mute role for the server."""
         if ctx.subcommand_passed is None:
             role = await self.getmuterole(ctx.guild)
-            await ctx.send(f"This server's mute role is set to: {role}.\nUse `$muterole set [role]` to set the role.")
+            await ctx.send(f"This server's mute role is set to: {role}.\nUse `$muterole help [role]` to see available options.")
         else:
             await ctx.send("Invalid command passed. Use `$help muterole` for help.")
     
     @muterole.command(name='set')
     async def muterole_set(self, ctx, *, role: discord.Role):
         """Set the mute role for the server."""
-        self.c.execute("""INSERT INTO settings(guild_id, role_id) VALUES (?, ?)
-                            ON CONFLICT(guild_id) DO UPDATE SET role_id=excluded.role_id""",
-                            (ctx.guild.id, role.id))
-        self.conn.commit()
+        with self.con:
+            self.con.execute("""INSERT INTO moderationsettings(guild_id, role_id) VALUES (?, ?)
+                                ON CONFLICT(guild_id) DO UPDATE SET role_id=excluded.role_id""",
+                                (ctx.guild.id, role.id))
         await ctx.send(f"Mute role set to: {role}")
 
     @muterole.command(name='reset')
     async def muterole_reset(self, ctx):
         """Reset this server's mute role."""
-        self.c.execute("""INSERT INTO settings(guild_id, role_id) VALUES (?, NULL)
-                        ON CONFLICT(guild_id) DO UPDATE SET role_id=NULL""",
-                        (ctx.guild.id,))
-        self.conn.commit()
+        with self.con:
+            self.con.execute("""INSERT INTO moderationsettings(guild_id, role_id) VALUES (?, NULL)
+                            ON CONFLICT(guild_id) DO UPDATE SET role_id=NULL""",
+                            (ctx.guild.id,))
         await ctx.send("Mute role set to: None")
 
     @muterole.command(name='create')
@@ -225,11 +197,11 @@ class Moderation(commands.Cog, name='moderation'):
                 await ctx.send(failure[:2000])
                 failure = failure[2000:]
 
-        # Update settings
-        self.c.execute("""INSERT INTO settings(guild_id, role_id) VALUES (?, ?)
-                        ON CONFLICT(guild_id) DO UPDATE SET role_id=excluded.role_id""",
-                        (ctx.guild.id, role.id))
-        self.conn.commit()
+        # Update moderationsettings
+        with self.con:
+            self.con.execute("""INSERT INTO moderationsettings(guild_id, role_id) VALUES (?, ?)
+                            ON CONFLICT(guild_id) DO UPDATE SET role_id=excluded.role_id""",
+                            (ctx.guild.id, role.id))
         await ctx.send(f"Mute role set to: {role}")
         
 
@@ -239,8 +211,7 @@ class Moderation(commands.Cog, name='moderation'):
 
     async def getmodlogchannel(self, guild: discord.Guild):
         """Return the moderation channel for the server, or None if unavailable."""
-        self.c.execute("SELECT channel_id FROM settings WHERE guild_id = ?", (guild.id,))
-        channel_id_tuple = self.c.fetchone()
+        channel_id_tuple = self.con.execute("SELECT channel_id FROM moderationsettings WHERE guild_id = ?", (guild.id,)).fetchone()
         # If guild is not in the db, then the above will return None. If the guild is in the db but has no channel, the above will return (None,)
         # The bottom first 'and' statement will result in channel being set to None if the above conditions are met
         # Else, the above will return (channel_id,), resulting in channel being set to the mention string
@@ -248,8 +219,7 @@ class Moderation(commands.Cog, name='moderation'):
 
     async def getmuterole(self, guild: discord.Guild):
         """Return the role used to mute users, or None if unavailable."""
-        self.c.execute("SELECT role_id FROM settings WHERE guild_id = ?", (guild.id,))
-        role_id_tuple = self.c.fetchone()
+        role_id_tuple = self.con.execute("SELECT role_id FROM moderationsettings WHERE guild_id = ?", (guild.id,)).fetchone()
         # See explanation for the and statements above in the modlog channel section
         return role_id_tuple and role_id_tuple[0] and guild.get_role(role_id_tuple[0])
 
@@ -267,13 +237,13 @@ class Moderation(commands.Cog, name='moderation'):
         # Update database
         time = datetime.now()
         complete = 1 if duration is None else 0
-        self.c.execute("""INSERT INTO modlog(guild_id, moderator, moderator_id,
-                                             user, user_id, timestamp,
-                                             type, duration, reason, complete)
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                          (guild.id, str(moderator), moderator.id, str(user), 
-                          user.id, time, type_, duration, reason, complete))
-        self.conn.commit()
+        with self.con:
+            self.con.execute("""INSERT INTO modlog(guild_id, moderator, moderator_id,
+                                                   user, user_id, timestamp,
+                                                   type, duration, reason, complete)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (guild.id, str(moderator), moderator.id, str(user), 
+                            user.id, time, type_, duration, reason, complete))
 
         # Creation of embed
         d = 'NA' if duration is None else ('Forever' if duration == -1 else f'{duration} Minutes')
@@ -313,10 +283,10 @@ class Moderation(commands.Cog, name='moderation'):
         return self.loop.create_task(coroutine())
 
     def update_modlog(self, guild_id, user_id):
-        self.c.execute("""UPDATE modlog SET complete = 1 WHERE 
-                          guild_id = ? AND user_id = ? AND complete = 0""", 
-                       (guild_id, user_id))
-        self.conn.commit()
+        with self.con:
+            self.con.execute("""UPDATE modlog SET complete = 1 WHERE 
+                            guild_id = ? AND user_id = ? AND complete = 0""", 
+                            (guild_id, user_id))
 
     def cancel_task(self, guild: discord.Guild, user: discord.Member):
         """Cancel any ongoing task for the member provided, and update the modlog."""
@@ -519,15 +489,15 @@ class Moderation(commands.Cog, name='moderation'):
         result = str()
         # Searching in sqlite is case-insensitive
         search = '%' + filter_ + '%'
-        self.c.execute("""SELECT moderator, user, timestamp, type, duration, reason 
-                            FROM modlog 
-                            WHERE guild_id = ?
-                                AND user_id = ?
-                                AND (type LIKE ? OR reason LIKE ?)
-                            ORDER BY timestamp DESC""",
+        c = self.con.execute("""SELECT moderator, user, timestamp, type, duration, reason 
+                                FROM modlog 
+                                WHERE guild_id = ?
+                                    AND user_id = ?
+                                    AND (type LIKE ? OR reason LIKE ?)
+                                ORDER BY timestamp DESC""",
                             (ctx.guild.id, user.id, search, search))
         for i in range(number):
-            r = self.c.fetchone()
+            r = c.fetchone()
             if r is None:
                 break
             punishment = r[3].capitalize()
@@ -536,6 +506,8 @@ class Moderation(commands.Cog, name='moderation'):
             result = f"[{r[2]}] ({r[0]}) {punishment} | {r[1]} - Reason: {r[5]}\n" + result
         else:
             i = number
+        
+        c.close()
 
         # Format result
         addon = "1 log" if i == 1 else f"{i} logs"
@@ -544,15 +516,7 @@ class Moderation(commands.Cog, name='moderation'):
             addon = addon[:-1] + f" with filter {filter_}:"
         result = addon + '\n' + result
 
-        if len(result) < 2000:
-            await ctx.send(result)
-        else:
-            try:
-                with open('modlog.txt', 'w', encoding="utf-8") as f:
-                    f.write(result)
-                return await ctx.send(file=discord.File(fp='modlog.txt'))
-            except UnicodeEncodeError as e:
-                return await ctx.send(f"{e}: Error sending file.")
+        await smart_send(ctx, result)
 
 
 def setup(bot):

@@ -17,10 +17,26 @@ class admin(commands.Cog):
     async def uptime(self, ctx):
         """Return the uptime of the bot."""
         delta = datetime.today() - self.bot.uptime
-        return await ctx.send(f"{delta.days} days, {delta.seconds // 3600} hours, {delta.seconds // 60 % 60} minutes and {delta.seconds % 60} seconds")
+        time = (delta.days, delta.seconds // 3600, delta.seconds // 60 % 60, delta.seconds % 60)
 
-    ### Check files commands ###
+        def helper(text, quantity):
+            if quantity != 1:
+                text += "s"
 
+        text = f"{time[0]} day"
+        helper(text, time[0])
+
+        text += f", {time[1]} hour"
+        helper(text, time[1])
+
+        text += f", {time[2]} minute"
+        helper(text, time[2])
+
+        text += f", {time[3]} second"
+        helper(text, time[3])      
+
+        return await ctx.send(embed=discord.Embed(title="Uptime", description=text + '.', colour=discord.Colour.blue()))
+            
     ### Blacklisting Commands ###
 
     @commands.command(hidden=True)
@@ -54,13 +70,14 @@ class admin(commands.Cog):
         $setprefix "x! " ---> x! command [arguments]
         $setprefix "bot " ---> bot command [arguments]
         """
-        return await self.bot.set_guild_prefix(ctx, prefix)
+        self.bot.set_guild_prefix(ctx.guild, prefix)
+        return await ctx.send(f"The server prefix is now set to '{prefix}'.")
+
 
     @commands.command(name='serverprefix')
     async def view_server_prefix(self, ctx):
         """Return the list of server prefixes for this bot."""
-        result = f"The bot has the following prefixes: '<@{self.bot.user.id}> ' and '{self.bot.get_guild_prefix(ctx)}'."
-        return await ctx.send(result)
+        return await ctx.send(f"The bot has the following prefixes: '<@{self.bot.user.id}> ' and '{self.bot.get_guild_prefix(ctx.guild)}'.")
 
 def setup(bot):
     bot.add_cog(admin(bot))

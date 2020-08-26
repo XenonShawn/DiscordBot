@@ -3,11 +3,13 @@ import logging
 from os.path import join
 import json
 import asyncio
+import sqlite3
+from collections import defaultdict
 
 import discord
 from discord.ext import commands
 
-from config import token # Contains token = 'xxx'   
+from config import token, DEFAULT_PREFIX # Contains token = 'xxx'   
 
 logging.basicConfig(level=logging.INFO,
                     format='[%(asctime)s] [%(levelname)s] %(message)s',
@@ -18,50 +20,95 @@ logging.basicConfig(level=logging.INFO,
                         logging.StreamHandler()
                     ])
 
-cogs_to_load = ['cogs.admin',
-                'cogs.fun', 
-                'cogs.utilities', 
-                'cogs.nssg', 
-                'cogs.games']
+cogs_to_load = ('cogs.admin', 'cogs.fun', 'cogs.nssg', 'cogs.utilities', 'cogs.moderation', 'cogs.games')
 
 ################################################################################
 #                                XenonBot Class                                #
 ################################################################################
 
 def command_prefixes(bot, msg):
-    if not msg.guild or msg.guild.id not in bot.guild_prefix:
-        prefix = ['$']
-    else:
-        prefix = [bot.guild_prefix[msg.guild.id]]
-    prefix.extend((f'<@{bot.user.id}> ', f'<@!{bot.user.id}> '))
-    return prefix
+    # bot.guild_prefix is a defaultdict with defaultfactory the DEFAULT_PREFIX
+    return (bot.guild_prefix[msg.guild.id], f'<@{bot.user.id}> ', f'<@!{bot.user.id}> ')
 
+class EmbedHelpCommand(commands.HelpCommand):
+    """Adapted from Rapptz's example."""
+    COLOUR = discord.Colour.blurple()
+
+    def get_ending_note(self):
+        return f"Use {self.clean_prefix}{self.invoked_with} [command] for more info on a command."
+
+    def get_command_signature(self, command):
+        return f"{command.qualified_name} {command.signature}"
+
+    async def send_bot_help(self, mapping):
+        embed = discord.Embed(title="Bot Commands", colour=self.COLOUR)
+        if self.context.bot.description:
+            embed.description = self.context.bot.description
+
+        for cog, commands in mapping.items():
+            name = "No Category" if cog is None else cog.qualified_name
+            filtered = await self.filter_commands(commands, sort=True)
+            if filtered:
+                value = '\u2002'.join(c.name for c in commands if not c.hidden)
+                if cog and cog.description:
+                    value = f"{cog.description}\n{value}"
+                
+                embed.add_field(name=name, value=value)
+        
+        embed.set_footer(text=self.get_ending_note())
+        await self.get_destination().send(embed=embed)
+    
+    async def send_cog_help(self, cog):
+        embed = discord.Embed(title=f"{cog.qualified_name} Commands", colour=self.COLOUR)
+        if cog.description:
+            embed.description = cog.description
+        
+        filtered = await self.filter_commands(cog.get_commands(), sort=True)
+        for command in filtered:
+            if not command.hidden:
+                embed.add_field(name=self.get_command_signature(command), value=command.short_doc or '...', inline=False)
+
+        embed.set_footer(text=self.get_ending_note())
+        await self.get_destination().send(embed=embed)
+
+    async def send_group_help(self, group):
+        embed = discord.Embed(title=self.clean_prefix + self.get_command_signature(group), colour=self.COLOUR)
+        if group.help:
+            embed.description = group.help
+
+        if isinstance(group, commands.Group):
+            filtered = await self.filter_commands(group.commands, sort=True)
+            for command in filtered:
+                if not command.hidden:
+                    embed.add_field(name=self.get_command_signature(command), value=command.short_doc or '...', inline=False)
+
+        embed.set_footer(text=self.get_ending_note())
+        await self.get_destination().send(embed=embed)
+
+    send_command_help = send_group_help
+    
 class XenonBot(commands.Bot):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.uptime = None
+        self.con = sqlite3.connect(join('data', 'data.db'), detect_types=sqlite3.PARSE_DECLTYPES)
+        self.guild_prefix = defaultdict(lambda: DEFAULT_PREFIX)
+        self.blacklist = set()
 
-        # Load server prefixes
-        try: 
-            with open(join('data', 'guild_prefix.json'), 'r') as f:
-                self.guild_prefix = {int(k): v for k, v in json.load(f).items()}
-            logging.info("Loaded server prefixes.")
-        except Exception as e:
-            logging.error(str(e))
-            logging.warning("Unable to load server prefixes. Servers which have"
-                            "set their prefixes will not be able to use them.")
-            self.guild_prefix = dict()
+        # Ensure database exists
+        self.con.execute("""CREATE TABLE IF NOT EXISTS settings (
+                                guild_id INTEGER UNIQUE NOT NULL,
+                                prefix TEXT NOT NULL)""")
+        self.con.execute("""CREATE TABLE IF NOT EXISTS blacklist (
+                                user_id INTEGER UNIQUE NOT NULL)""")
 
-        # Load blacklisted users
-        try:
-            with open(join('data', 'blacklist.json'), 'r') as f:
-                self.blacklist = set(json.load(f))
-            logging.info("Loaded blacklisted users")
-        except Exception as e:
-            logging.error(str(e))
-            logging.warning("Unable to load blacklisted users.")
-            self.blacklist = set() # set of user ids
+        # Load guild prefixes and blacklisted users into memory
+        for guild_id, prefix in self.con.execute("SELECT guild_id, prefix FROM settings"):
+            self.guild_prefix[guild_id] = prefix
+
+        for user_id in self.con.execute("SELECT user_id FROM blacklist"):
+            self.blacklist.add(user_id)
 
         # Load cogs
         for filename in cogs_to_load:
@@ -74,17 +121,17 @@ class XenonBot(commands.Bot):
 
     ### Functions relating to guild prefixes ###
 
-    async def set_guild_prefix(self, ctx, prefix: str):
+    def set_guild_prefix(self, guild, prefix: str):
         """Set the guild's command prefix."""
-        self.guild_prefix[ctx.guild.id] = prefix
-        return await ctx.send(f"The server prefix is now set to '{self.guild_prefix[ctx.guild.id]}'.")
+        self.con.execute("""INSERT INTO settings(guild_id, prefix) VALUES (?, ?)
+                            ON CONFLICT(guild_id) DO UPDATE SET prefix=excluded.prefix""",
+                            (guild.id, prefix))
+        self.con.commit()
+        self.guild_prefix[guild.id] = prefix
     
-    def get_guild_prefix(self, ctx):
-        """
-        Return the unique guild prefix. Duh.
-        Will be used more in the future when I implement my own help function.
-        """
-        return self.guild_prefix.get(ctx.guild.id, '$')
+    def get_guild_prefix(self, guild):
+        """Return the unique guild prefix. Duh."""
+        return self.guild_prefix[guild.id]
 
     # Blacklist functions
     async def blacklist_user(self, ctx, user: discord.User):
@@ -92,7 +139,10 @@ class XenonBot(commands.Bot):
         identity = user.id
         if identity == self.owner_id:
             return await ctx.send("The owner of the bot cannot be blacklisted.")
-        elif identity in self.blacklist:
+        try:
+            with self.con:
+                self.con.execute("INSERT INTO blacklist(user_id) VALUES (?)", (identity,))
+        except sqlite3.IntegrityError:
             return await ctx.send(f"{user} is already in the blacklist.")
         else:
             self.blacklist.add(identity)
@@ -106,6 +156,8 @@ class XenonBot(commands.Bot):
             return await ctx.send(f"{user} is not in the global blacklist.")
         else:
             self.blacklist.remove(identity)
+            with self.con:
+                self.con.execute("DELETE FROM blacklist WHERE user_id = ?", (identity, ))
             logging.info(f"{user} removed from global blacklist.")
             return await ctx.send(f"{user} removed from the global blacklist.")
 
@@ -122,17 +174,20 @@ class XenonBot(commands.Bot):
 
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.MissingPermissions) or isinstance(error, commands.NotOwner):
-            return await ctx.send("You do not have the permissions to use this command.")
+            return await ctx.send(embed=self.error_embed("You do not have the permissions to use this command."))
         if isinstance(error, commands.MissingRequiredArgument):
-            return await ctx.send("Missing required arguments for command. Use $help [command] for example usage.")
-        if isinstance(error, commands.BadArgument) or isinstance(error, commands.BadUnionArgument):
-            return await ctx.send(error)
-        if isinstance(error, commands.NoPrivateMessage):
-            return await ctx.send(error)
-        if isinstance(error, commands.BotMissingPermissions):
-            return await ctx.send(error)
+            return await ctx.send(embed=self.error_embed("Missing required arguments for command. Use $help [command] for example usage."))
+        if (isinstance(error, commands.BadArgument) 
+                or isinstance(error, commands.BadUnionArgument)
+                or isinstance(error, commands.NoPrivateMessage) 
+                or isinstance(error, commands.BotMissingPermissions)):
+            return await ctx.send(embed=self.error_embed(str(error)))
         logging.error(f"{type(error)}: {error}")
         raise error
+
+    def error_embed(self, message):
+        """Helper function to produce an error embed."""
+        return discord.Embed(title="Error", description = message, colour=discord.Colour.red())
 
     async def on_message(self, message):
         if message.author.bot or message.author.id in self.blacklist:
@@ -141,7 +196,7 @@ class XenonBot(commands.Bot):
 
 
 logging.info("Starting up the bot.")
-bot = XenonBot(command_prefix=command_prefixes)
+bot = XenonBot(command_prefix=command_prefixes, help_command=EmbedHelpCommand())
 
 ### Commands to load cogs ###
 
@@ -149,60 +204,37 @@ bot = XenonBot(command_prefix=command_prefixes)
 @commands.is_owner()
 async def load(ctx, extension):
     """Owner only administrative command used to load a cog."""
-    logging.info(f"Request by {ctx.author}: Load cog {extension}.")
-    try:
-        bot.load_extension(f'cogs.{extension}')
-        logging.info(f"Request to load cog {extension} successful.")
-        return await ctx.send(f"Loaded cog {extension}.")
-    except commands.ExtensionError as e:
-        logging.error(f"Request to load cog {extension} unsuccessful. Error Type: {type(e)}.\nError Message: {e}")
-        return await ctx.send(f"Failed to load cog {extension}. Error Type: {type(e)}.\nError Message: {e}")
+    await loading_helper(ctx, extension, "Load")
 
 @bot.command(hidden=True)
 @commands.is_owner()
 async def unload(ctx, extension):
     """Owner only administrative command used to unload a cog."""
-    logging.info(f"Request by {ctx.author}: Unoad cog {extension}.")
-    try:
-        bot.unload_extension(f'cogs.{extension}')
-        logging.info(f"Request to unload cog {extension} successful.")
-        return await ctx.send(f"Unloaded cog {extension}")
-    except commands.ExtensionNotLoaded as e:
-        logging.error(f"Request to unload cog {extension} unsuccessful. Error Type: {type(e)}.\nError Message: {e}")
-        return await ctx.send(f"Failed to unload cog {extension}. Error Type: {type(e)}.\nError Message: {e}")
+    await loading_helper(ctx, extension, "Unload")
 
 @bot.command(hidden=True)
 @commands.is_owner()
 async def reload(ctx, extension):
     """Owner only administrative command used to reload a cog."""
-    logging.info(f"Request by {ctx.author}: Reload cog {extension}.")
-    try:
-        bot.reload_extension(f'cogs.{extension}')
-        logging.info(f"Request to reload cog {extension} successful.")
-        return await ctx.send(f"Reloaded cog {extension}")
+    await loading_helper(ctx, extension, "Reload")
+        
+async def loading_helper(ctx, extension, function):
+    """Helper function for the above three functions."""
+    funct = {"Load": bot.load_extension, "Unload": bot.unload_extension, "Reload": bot.reload_extension}
+    logging.info(f"Request by {ctx.author}: {function} cog {extension}.")
+    try: 
+        funct[function](f'cogs.{extension}')
+        logging.info(f"Request to {function.lower()} cog {extension} successful.")
+        return await ctx.send(f"{function}ed cog {extension}")
     except commands.ExtensionError as e:
-        logging.error(f"Request to reload cog {extension} unsuccessful. Error Type: {type(e)}.\nError Message: {e}")
+        logging.error(f"Request to {function.lower()} cog {extension} unsuccessful. Error Type: {type(e)}.\nError Message: {e}")
         return await ctx.send(f"Failed to reload cog {extension}. Error Type: {type(e)}.\nError Message: {e}")
 
 try:
     bot.run(token)
-    
+
 ################################################################################
 #                                 Cleanup Code                                 #
 ################################################################################
 finally:
-    try:
-        with open(join('data', 'guild_prefix.json'), 'w') as f:
-            json.dump(bot.guild_prefix, f)
-        logging.info("Saved server prefixes.")
-    except Exception as e:
-        logging.error(str(e))
-        logging.warning("Unable to save server prefixes!")
-
-    try:
-        with open(join('data', 'blacklist.json'), 'w') as f:
-            json.dump(list(bot.blacklist), f)
-        logging.info("Saved blacklist.")
-    except Exception as e:
-        logging.error(str(e))
-        logging.warning("Unable to save blacklist!")
+    bot.con.close()

@@ -11,28 +11,23 @@ class nssg(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         logging.info("Loading NSSG cog files.")
-        try:
-            with open(join('data', 'ord_date.pkl'), 'rb') as f:
-                self.ord_dates = pickle.load(f)
-            logging.info("Loaded saved ORD dates.")
-        except OSError as e:
-            # Unable to find the file
-            logging.warning(f"{type(e)}: {e}")
-            self.ord_dates = dict()
+        self.con = bot.con
+
+        # Ensure database exists
+        self.con.execute("""CREATE TABLE IF NOT EXISTS nssg (
+                                user_id INTEGER NOT NULL,
+                                ord TIMESTAMP NOT NULL)""")
         self.enlistmentmessages = set()
         self.enlistmentmsgpooling = dict()
 
     def cog_unload(self):
-        logging.info("Saving NSSG cog before shutting down...")
-        with open(join('data', 'ord_date.pkl'), 'wb') as f:
-            pickle.dump(self.ord_dates, f, pickle.HIGHEST_PROTOCOL)
-        logging.info("Saved ORD dates.")
+        pass
 
     @commands.command(hidden=True)
     @commands.is_owner()
     async def check_nssg(self, ctx):
         """Owner only command for debugging purposes."""
-        print(self.ord_dates)
+        pass
 
     @commands.command()
     async def ord(self, ctx, *date: int):
@@ -44,23 +39,30 @@ class nssg(commands.Cog):
         Example: To check days to ORD, use $ord
         """
         if not len(date):
-            if ctx.author.id not in self.ord_dates:
+            date = self.con.execute("SELECT ord FROM nssg WHERE user_id = ?", (ctx.author.id, )).fetchone()
+            if date is None:
                 return await ctx.send("You have not indicated your ORD. Use $ord [day] [month] [year] to set your ORD.")
-
-            days = (self.ord_dates[ctx.author.id] - date_.today()).days
-            if days > 0: await ctx.send(f"{days} days left to ORD!")
-            elif days == 0: await ctx.send("WGT, ORDLO!")
-            else: await ctx.send(f"{-days} days since ORD!")
+                
+            days = (date[0] - date_.today()).days
+            if days > 0: 
+                await ctx.send(f"{days} days left to ORD!")
+            elif days == 0: 
+                await ctx.send("WGT, ORDLO!")
+            else: 
+                await ctx.send(f"{-days} days since ORD!")
 
         elif len(date) == 3:
             try:
-                year = date[2] if date[2] > 50 else date[2] + 2000
-                self.ord_dates[ctx.author.id] = date_(year, date[1], date[0])
+                year = date[2] if date[2] > 80 else date[2] + 2000
+                with self.con:
+                    self.con.execute("""INSERT INTO nssg(user_id, ord) VALUES (?, ?)
+                                        ON CONFLICT(user_id) DO UPDATE SET ord=excluded.ord""",
+                                        (ctx.author.id, date_(year, date[1], date[0])))
                 return await ctx.send(f"Your ORD is set to {date[0]:02d}/{date[1]:02d}/{year}")
             except ValueError as e:
                 return await ctx.send(str(e).capitalize())
         else:
-            await ctx.send("Inproper parameters to set your ORD. Use $ord [day] [month] [year] to set your ORD.")
+            await ctx.send("Improper parameters to set your ORD. Use $ord [day] [month] [year] to set your ORD.")
 
     @commands.command()
     @commands.has_guild_permissions(manage_guild=True)
@@ -103,6 +105,7 @@ class nssg(commands.Cog):
         if (message.author != self.bot.user or len(message.embeds) != 1 
             or not message.embeds[0].title.startswith("Enlistment on ")):
             return await ctx.send("Not an enlistment message")
+        await ctx.message.delete()
         
         embeddict = message.embeds[0].to_dict()
         embeddict['footer']['text'] = "React '😭' to add yourself to the list!"
@@ -126,7 +129,8 @@ class nssg(commands.Cog):
             if self.enlistmentmsgpooling.get(payload.message_id, False):
                 return
             self.enlistmentmsgpooling[payload.message_id] = True
-        
+
+            # Need to get message instance again since reactions don't update
             channel = self.bot.get_channel(payload.channel_id)
             message = await channel.fetch_message(payload.message_id)
             # Technically the above can result in None, but it shouldn't happen

@@ -1,37 +1,38 @@
 import discord
 from discord.ext import commands
-from collections import defaultdict
-import asyncio
-import pickle
 import logging
-from os.path import join
+import asyncio
+from datetime import datetime, timezone, timedelta
+from cogs.helper import schedule_task, smart_send, Duration # Cog loading is based on where bot.py is
+
+# I could have added a guild-specific timezones, but since I do not intend for
+# this bot to be used by non-Singaporean guilds, I will not over-engineer it.
+# If for some reason you are using this bot, then change the timezone or something.
+# This is used as SQLite3 library spits out naive datetime instances, see below.
+TIMEZONE = 8
 
 class Utility(commands.Cog, name='utilities'):
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        logging.info("Loading agenda_storage.")
-        try:
-            with open(join('data', 'agenda_storage.pkl'), 'rb') as f:
-                self.agenda_storage = pickle.load(f)
-            logging.info("Loaded agenda_storage.")
-        except OSError as e:
-            logging.warning(f"{type(e)}: {e}")
-            # Use a defaultdict so keyerrors won't be thrown when inserting agenda tasks when server does not exist
-            self.agenda_storage = defaultdict(list)
-        self.voting_on = dict()
-    
+        self.con = bot.con
+        self.loop = asyncio.get_event_loop()
+        self.tasks = set()
+        self.con.execute("""CREATE TABLE IF NOT EXISTS reminders (
+                                guild_id    INTEGER NOT NULL,
+                                channel_id  INTEGER NOT NULL,
+                                message_id  INTEGER UNIQUE NOT NULL,
+                                end         TIMESTAMP NOT NULL,
+                                text        TEXT NOT NULL)""")
+        for row in self.con.execute("SELECT * FROM reminders"):
+            # SQLite3 datetime comes out timezone naive, so need to change the timezone 
+            delta = (row[3].replace(tzinfo=timezone(timedelta(hours=TIMEZONE))) - datetime.now(timezone(timedelta(hours=TIMEZONE)))).total_seconds()
+            self.tasks.add(schedule_task(self.loop, delta, self.end_reminder(row)))
+            logging.info("Scheduled a reminder task.")
+        
     def cog_unload(self):
-        logging.info("Saving agenda_storage before shutdown...")
-        with open(join('data', 'agenda_storage.pkl'), 'wb') as f:
-            pickle.dump(self.agenda_storage, f, pickle.HIGHEST_PROTOCOL)
-        logging.info("Saved agenda_storage.")
-
-    @commands.command(hidden=True)
-    @commands.is_owner()
-    async def check_agenda(self, ctx):
-        """Owner-only command for debugging purposes."""
-        print(self.agenda_storage)
+        for task in self.tasks:
+            task.cancel()
 
     @commands.command()
     @commands.has_permissions(manage_messages=True)
@@ -43,7 +44,7 @@ class Utility(commands.Cog, name='utilities'):
 
         # Double confirm clearing of messages
         def correct_response(message):
-            return message.author == ctx.author and message.content.upper() in ['Y','N']
+            return message.author == ctx.author and message.content.upper() in ('Y','N')
 
         try:
             await ctx.send(f"Are you sure you want to clear {num} messages? (Y/N)")
@@ -55,135 +56,64 @@ class Utility(commands.Cog, name='utilities'):
             return await ctx.channel.purge(limit=num + 3)
         else:
             return await ctx.send("Clear request cancelled.")
-
-    # Agenda group commands
-    @commands.group()
-    @commands.has_permissions(manage_guild=True)
-    async def agenda(self, ctx: commands.Context):
-        """Command for agenda-related functions."""
-        if ctx.invoked_subcommand is None:
-            if ctx.subcommand_passed is None:
-                return await ctx.send(
-                "```Usage: $agenda [function] [arguments for function]\n"
-                "Used to keep track of topics to be discussed.\n"
-                "Use $help agenda [function] if you want a more detailed explanation of each available function.\n"
-                "\n"    
-                "Functions available:\n"
-                "add - Adds tasks to the agenda list. Tasks are delimited by a line break and a dash (-).\n"
-                "remove - Removes tasks from the agenda list.\n"
-                "clear - Clears the current agenda list.\n"
-                "list - Shows the current agenda list.```")
-            else:
-                return await ctx.send("Invalid function.")
-
-    @agenda.command(name='add')
-    async def agenda_add(self, ctx, *, args=None):
-        """Adds items to the agenda list. Tasks should be delimited by a line break.
-        
-        Example: $agenda add Do task 1
-        Do task 2
-        Do task 3"""
-
-        if args is None:
-            return await ctx.send("No input detected.")
-
-        for row in args.splitlines():
-            self.agenda_storage[ctx.guild.id].append(row.lstrip())
-        return await self.agenda_list_helper(ctx)
-
-    @agenda.command(name='list')
-    async def agenda_list(self, ctx):
-        """Returns the current items on the agenda list.\n\nExample: $agenda list"""
-        return await self.agenda_list_helper(ctx)
-
-    async def agenda_list_helper(self, ctx):
-        if len(self.agenda_storage[ctx.guild.id]) == 0:
-            return await ctx.send("There are no items on the agenda.")
-        result = "The items currently in the agenda are:\n"
-        for i, item in enumerate(self.agenda_storage[ctx.guild.id]):
-            result += f"{i + 1}: {item}\n"
-        return await ctx.send(result)
-
-    @agenda.command(name='remove')
-    async def agenda_remove(self, ctx, *, args=None):
-        """Removes items from the agenda list. Tasks to be removed should be their task numers delimited by spaces.\n\nExample: $agenda remove 2 5 10"""
-
-        server_id = ctx.guild.id
-        l = len(self.agenda_storage[server_id])
-        if args is None:
-            return await ctx.send("No input detected.")
-        if l == 0:
-            return await ctx.send("There are no items on the agenda.")
-        
-        to_delete = list()
-        failure = str()
-        confirmation = "These items will be removed from the agenda list:\n"
-        for item in args.split():
-            # Weed out invalid tasks. 
-            # Did not require args to be an int so that people don't need to rekey the whole thing if one argument was wrong
-            try:
-                index = int(item) - 1
-                if index < 0 or index > l - 1:
-                    raise ValueError
-            except ValueError:
-                failure += f"Invalid task number {item}\n"
-                continue
-
-            if index not in to_delete:
-                confirmation += f"{index + 1}: {self.agenda_storage[server_id][index]}\n"
-                to_delete.append(index)
-        
-        if len(to_delete) == 0:
-            return await ctx.send(failure + "No valid tasks to delete.")
-
-        # Wait for response
-        def correct_response(message):
-            return message.author == ctx.author and message.content.upper() in ['Y','N']
-
-        try:
-            await ctx.send(failure + confirmation + "Are you sure you want to remove the above? (Y/N)")
-            response = await self.bot.wait_for('message', check=correct_response, timeout=max(len(to_delete) * 5, 10))
-        except asyncio.TimeoutError:
-            return await ctx.send("No proper response detected. Remove request rejected.")
-        
-        if response.content.upper() == 'Y':
-            # Sort in reverse order so index remains the same
-            for index in sorted(to_delete, reverse=True):
-                self.agenda_storage[server_id].pop(index)
-            await ctx.send("Removed tasks.")
-            return await self.agenda_list_helper(ctx)
-        else:
-            return await ctx.send("Remove request cancelled.")
-
-    @agenda.command(name='clear')
-    async def agenda_clear(self, ctx):
-        """Clears the agenda list.\n\nExample: $agenda clear"""
-
-        server_id = ctx.guild.id
-        if len(self.agenda_storage[server_id]) == 0:
-            return await ctx.send("There are no items on the agenda.")
-
-        # Wait for response
-        def correct_response(message):
-            return message.author == ctx.author and message.content.upper() in ['Y','N']
-
-        try:
-            await ctx.send("Are you sure you want to clear the agenda? (Y/N)")
-            response = await self.bot.wait_for('message', check=correct_response, timeout=10.0)
-        except asyncio.TimeoutError:
-            return await ctx.send("No proper response detected. Remove request rejected.")
-        
-        if response.content.upper() == 'Y':
-            self.agenda_storage.pop(server_id)
-            return await ctx.send("Cleared the agenda.")
-        else:
-            return await ctx.send("Clear request cancelled.")
-
+    
     @commands.command(aliases=['count_role', 'role_count'])
     @commands.has_permissions(manage_guild=True)
     async def countrole(self, ctx, *, role: discord.Role):
         """Count the number of people with the given role in the current server."""
         return await ctx.send(f"{len(role.members)} member(s) have this role in this server.")
+
+    @commands.command(aliases=['remind'])
+    async def remindme(self, ctx, duration: Duration, *, text):
+        """
+        Have the bot send a reminder after a specified duration.
+
+        Usage: $remindme [duration, X(m/h/d)] [text]
+        Example: $remindme 90m Watch tv show
+        Example: $remindme 8d Join game
+        """
+        now = datetime.now(timezone(timedelta(hours=TIMEZONE)))
+        end = now + timedelta(minutes=duration)
+
+        embed = discord.Embed(title=f"Reminder Created by {ctx.author}", 
+                              description=text, 
+                              colour=discord.Colour.blue(),
+                              timestamp=end)
+        embed.set_thumbnail(url=ctx.author.avatar_url)
+        embed.add_field(name="The bot will remind all who reacted 🤚 below.", 
+                        value=f"Reminding in {duration} minutes!", inline=False)
+        embed.set_footer(text="Time to remind")
+        message = await ctx.send(embed=embed)
+        await message.add_reaction('🤚')
+        
+        row = (ctx.guild.id, ctx.channel.id, message.id, end, text)
+        with self.con:
+            self.con.execute("INSERT INTO reminders VALUES (?, ?, ?, ?, ?)", row)
+        self.tasks.add(schedule_task(self.loop, duration * 60, self.end_reminder(row)))
+
+    async def end_reminder(self, db_row):
+        """Function run upon reminder timer up."""
+        with self.con:
+            self.con.execute("DELETE FROM reminders WHERE message_id = ?", (db_row[2],))
+        self.tasks.discard(db_row[2])
+        
+        channel = self.bot.get_channel(db_row[1])
+        if channel is None:
+            return # Channel no longer exists, just ignore
+        message = await channel.fetch_message(db_row[2])
+        if message is None:
+            return # Message no longer exists, just ignore
+
+        users = (x.mention for x in await message.reactions[0].users().flatten() if x != self.bot.user)
+        if users:
+            text = f"Reminder for `{db_row[4]}`: " + ', '.join(users) + '.'
+            await smart_send(channel, text)
+
+        # Amend reminder message embed to show it is done
+        embeddict = message.embeds[0].to_dict()
+        embeddict['fields'][0]['value'] = "Reminded!"
+        embeddict['color'] = discord.Colour.red().value
+        await message.edit(embed=discord.Embed.from_dict(embeddict))
 
 
 def setup(bot):

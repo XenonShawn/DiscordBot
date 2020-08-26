@@ -482,5 +482,125 @@ class Games(commands.Cog, name='games'):
         await ctx.send(embed=embed)
 
 
+
+    # @signups.command(name='connect4', aliases=['connectfour'])
+    # async def _signups_connect4(self, ctx):
+    #     """
+    #     Starts a game of Connect Four.
+
+    #     Exactly two players is required to play this game.
+    #     Player who initiated the signups will go first.
+    #     """
+    #     raise NotImplementedError
+    #     # Start Signups
+    #     if not await self.signups_helper(ctx, 'Connect 4', maximum=2):
+    #         return None
+        
+    #     # Decides who goes first
+    #     convert = commands.MemberConverter().convert
+    #     async def check(message):
+    #         return (message.author in self.games_info[ctx.guild.id][2] and
+    #                 await convert(ctx, message.content) in self.games_info[ctx.guild.id][2])
+    #     try:
+    #         await ctx.send("Out of the two players, who should go first? Mention their name.")
+    #         message = await self.bot.wait_for('message', check=check, timeout=60)
+    #     except asyncio.TimeoutError:
+    #         return await ctx.send("No response detected. Game cancelled.\n")
+
+    #     # Information required by game
+    #     blank = ':black_large_square:'
+    #     red = ':red_square:' # Player 1
+    #     blue = ':blue_square:' # Player 2
+    #     gameboard = [[blank] * 7] * 6
+    #     player1 = convert(ctx, message.content)
+    #     players = [player1,
+    #                (self.games_info[ctx.guild.id][2] - {player1}).pop()]
+    #     del player1
+
+    #     def displayboard_text():
+    #         """Send the current game board into the chat."""
+    #         send = ":regional_indicator_a: :regional_indicator_b: :regional_indicator_c: :regional_indicator_d: :regional_indicator_e: :regional_indicator_f: :regional_indicator_g:\n"
+    #         for row in gameboard:
+    #             send += ' '.join(row) + '\n'
+    #         return send
+
+    #     # Start Game
+    #     current_player = 0
+    #     counter = defaultdict(int)
+    #     def check_message(message):
+    #         return (message.author == players[current_player] and
+    #                 message.content.lower() in ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'surrender'))
+
+    #     while True:
+    #         await ctx.send(displayboard_text() + f"{players[current_player]}'s turn. Type which column you want to drop the token, or 'surrender' to lose.")
+    #         second_time = False
+
+    #         while True:
+    #             try:
+    #                 message = await self.bot.wait_for('message', check=check_message, timeout=30)
+    #                 content = message.content.lower()
+    #             except asyncio.TimeoutError:
+    #                 if second_time:
+    #                     # Consider it as surrender
+    #                     content = 'surrender'
+    #                     break
+    #                 second_time = True
+    #                 ctx.send(f"{players[current_player].mention}, you have 30s left to make a response.")
+
+    #             if content == 'surrender':
+    #                 await ctx.send(f"{players[current_player].mention} has surrendered.")
+    #                 break
+    #             elif counter[content] < 6:
+    #                 counter[content] += 1
+    #         break
+    #     pass
+
+    # @signups.command(name='aitp', aliases=['assassininthepalace'])
+    # async def _signups_aith(self, ctx):
+    #     """Starts a game of Assassin in the Palace.
+
+    #     A minimum of 3 players is required.
+
+    #     ---(Game Rules)---
+    #     One person is designated as the King, another one will be desginated as
+    #     the Assassin, and the remaining players will be designated as a Guard.
+    #     The King and the Guards are part of the 'good' faction, and wins as long
+    #     as the Assassin is killed or the King survives. The assassin wins if the
+    #     King is dead.
+
+    #     Everyone in the game is allowed to vote one person to be killed at a time
+    #     by using '$vote @playername'. 
+
+    #     ---(Role Infomation)---
+    #     King: Your goal is to survive. You have no other information on who the
+    #     Guards are.
+
+    #     Guard: Your goal is to protect your King, the name of which will be given
+    #     to you in PMs. 
+        
+    #     Assassin: Your goal is to kill the king. You have a one time ability to
+    #     assassinate anyone in the game by using '$kill @playername'. If you fail
+    #     to kill the king, you are discovered and you lose immediately. Should you 
+    #     be voted out of the game, and have yet to use your ability, you will 
+    #     desperately kill the person who places the last vote on you.
+
+    #     ---(Role PM Format)---
+    #     King: "You are the King! You have no abilities, but your survival is crucial
+    #     to your kingdom. Avoid assassination at all costs! The guards know your
+    #     identity, but you do not know theirs."
+
+    #     Guard: "You are a Guard, loyally protecting your King 'NAME' from the evil
+    #     assassin! You an every other guard know the identity of the King."
+
+    #     Assassin: "You are the Assassin, wishing to assassinate the king! You have
+    #     a one-shot assassination attempt, which you can make any time before you
+    #     are voted out by typing '$kill @playername' in chat. Be warned though, if
+    #     you assassinated the wrong person, you will instantly lose! If you are voted
+    #     before you assassinated anyone, you'll automatically kill the last person
+    #     who voted you out in desperation of killing the king.
+    #     """
+    #     pass
+
+        
 def setup(bot):
     bot.add_cog(Games(bot))
