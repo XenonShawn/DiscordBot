@@ -19,21 +19,14 @@ class admin(commands.Cog):
         delta = datetime.today() - self.bot.uptime
         time = (delta.days, delta.seconds // 3600, delta.seconds // 60 % 60, delta.seconds % 60)
 
-        def helper(text, quantity):
+        def helper(quantity):
             if quantity != 1:
-                text += "s"
+                return "s"
 
-        text = f"{time[0]} day"
-        helper(text, time[0])
-
-        text += f", {time[1]} hour"
-        helper(text, time[1])
-
-        text += f", {time[2]} minute"
-        helper(text, time[2])
-
-        text += f", {time[3]} second"
-        helper(text, time[3])      
+        text = f"{time[0]} day" + helper(time[0])
+        text += f", {time[1]} hour" + helper(time[1])
+        text += f", {time[2]} minute" + helper(time[2])
+        text += f", {time[3]} second" + helper(time[3])      
 
         return await ctx.send(embed=discord.Embed(title="Uptime", description=text + '.', colour=discord.Colour.blue()))
             
