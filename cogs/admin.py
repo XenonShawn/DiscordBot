@@ -20,8 +20,7 @@ class admin(commands.Cog):
         time = (delta.days, delta.seconds // 3600, delta.seconds // 60 % 60, delta.seconds % 60)
 
         def helper(quantity):
-            if quantity != 1:
-                return "s"
+            return "s" if quantity != 1 else ''
 
         text = f"{time[0]} day" + helper(time[0])
         text += f", {time[1]} hour" + helper(time[1])

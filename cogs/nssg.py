@@ -15,7 +15,7 @@ class nssg(commands.Cog):
 
         # Ensure database exists
         self.con.execute("""CREATE TABLE IF NOT EXISTS nssg (
-                                user_id INTEGER NOT NULL,
+                                user_id INTEGER UNIQUE NOT NULL,
                                 ord DATE NOT NULL)""")
         self.enlistmentmessages = set()
         self.enlistmentmsgpooling = dict()
