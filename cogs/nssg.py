@@ -53,14 +53,14 @@ class Nssg(commands.Cog, name='nssg'):
 
         now = datetime.now()
         seconds_since_midnight = (now - now.replace(hour=0, minute=0, second=0)).total_seconds()
-        logging.log(86400 - seconds_since_midnight, "seconds to midnight.")
+        logging.info(str(86400 - seconds_since_midnight) + " seconds to midnight.")
         # Update enlistment messages every 12am + 5 seconds
         self.task = schedule_task(self.bot.loop, 86405 - seconds_since_midnight, self.enlistmentmessages.start)
 
     def cog_unload(self):
         if not self.task.cancelled():
             self.task.cancel()
-        self.enlistmentOverall.cancel()
+        self.enlistmentmessages.cancel()
     
     ################################################################################
     #                                  Commands                                    #
@@ -149,7 +149,7 @@ class Nssg(commands.Cog, name='nssg'):
                 events = json.load(f)
         return events
 
-    def createEmbed(self, date_: date, events: list[str]) -> discord.Embed:
+    def createEmbed(self, date_: date, events) -> discord.Embed:
         embed = discord.Embed(title=f"Enlistment on {date_.strftime('%d %b %Y')}", colour=discord.Colour.green())
         for i, event in enumerate(events):
             embed.add_field(name=numbers[i] + ' ' + event, value="None", inline=True)
