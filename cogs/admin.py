@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from datetime import datetime
 
-class admin(commands.Cog):
+class Admin(commands.Cog, name='admin'):
 
     def __init__(self, bot: commands.bot):
         self.bot = bot
@@ -25,21 +25,21 @@ class admin(commands.Cog):
         text = f"{time[0]} day" + helper(time[0])
         text += f", {time[1]} hour" + helper(time[1])
         text += f", {time[2]} minute" + helper(time[2])
-        text += f", {time[3]} second" + helper(time[3])      
+        text += f", {time[3]} second" + helper(time[3]) + '.'
 
-        return await ctx.send(embed=discord.Embed(title="Uptime", description=text + '.', colour=discord.Colour.blue()))
+        return await ctx.send(embed=discord.Embed(title="Uptime", description=text, colour=discord.Colour.blue()))
             
     ### Blacklisting Commands ###
 
     @commands.command(hidden=True)
     @commands.is_owner()
-    async def blacklist(self, ctx, *, user: discord.User):
+    async def globalblacklist(self, ctx, *, user: discord.User):
         """Owner only command to manually blacklist a user."""
         await self.bot.blacklist_user(ctx, user)
 
     @commands.command(hidden=True)
     @commands.is_owner()
-    async def unblacklist(self, ctx, *, user: discord.User):
+    async def globalunblacklist(self, ctx, *, user: discord.User):
         """Owner only command to manually unblacklist a user."""
         await self.bot.unblacklist_user(ctx, user)
 
@@ -69,7 +69,7 @@ class admin(commands.Cog):
     @commands.command(name='serverprefix')
     async def view_server_prefix(self, ctx):
         """Return the list of server prefixes for this bot."""
-        return await ctx.send(f"The bot has the following prefixes: '<@{self.bot.user.id}> ' and '{self.bot.get_guild_prefix(ctx.guild)}'.")
+        return await ctx.send(f"The bot has the following prefixes: '<@{self.bot.user.id}>' and '{self.bot.get_guild_prefix(ctx.guild)}'.")
 
 def setup(bot):
-    bot.add_cog(admin(bot))
+    bot.add_cog(Admin(bot))

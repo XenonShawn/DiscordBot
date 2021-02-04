@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import typing
 
 import discord
 from discord.ext import commands
@@ -34,22 +35,34 @@ class PositiveInt(commands.Converter):
         except ValueError:
             raise commands.BadArgument("Argument provided is not a positive integer.")
 
-def schedule_task(loop, sleep_seconds: int, coro) -> asyncio.Task:
+def schedule_task(loop, sleep_seconds: int, func: typing.Callable) -> asyncio.Task:
         """
-        A helper function that schedules a coroutine `coro` to be run on `loop`
-        `sleep_seconds` seconds in the future. If `sleep_seconds` is negative, 
-        the coroutine will be run as soon as possible.
-        
+        A helper function that schedules a callable to be called `sleep_seconds` in
+        the future, on event loop `loop`. If `sleep_seconds` is negative, 
+        the callback will be called as soon as possible.
+
+        Arguments can be passed in into `func` using `functools.partial`.
+
         Returns the task object.
+
+        Depreciated: A coroutine object can be passed in directly, and it will be awaited
+        without being called a second time. Functionality still exists to ensure compatibility.
         """
-        if not asyncio.iscoroutine(coro):
-            raise TypeError("Argument must be a coroutine object.")
+        if not (callable(func) or asyncio.iscoroutine(func)):
+            raise TypeError("Argument must be callable.")
         async def coroutine():
             try:
                 await asyncio.sleep(max(sleep_seconds, 0))
-                await coro
+                if asyncio.iscoroutinefunction(func):
+                    await func()
+                elif asyncio.iscoroutine(func):
+                    await func
+                else:
+                    func()
             except asyncio.CancelledError:
                 logging.warn("Cancelled unfinished task.")
+        if asyncio.iscoroutine(func):
+            logging.warn("Passing a coroutine object into `schedule_task` is depreciated.")
         return loop.create_task(coroutine())
 
 async def smart_send(target: discord.abc.Messageable, msg, sep=2000):

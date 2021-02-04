@@ -1,8 +1,6 @@
-from datetime import datetime, date
+from datetime import datetime
 import logging
 from os.path import join
-import json
-import asyncio
 import sqlite3
 from collections import defaultdict
 
@@ -86,15 +84,6 @@ class EmbedHelpCommand(commands.HelpCommand):
         await self.get_destination().send(embed=embed)
 
     send_command_help = send_group_help
-
-def adapt_date(date: date):
-    return date.isoformat()
-
-def convert_date(s):
-    return date.fromisoformat(s.decode("utf-8"))
-
-sqlite3.register_adapter(date, adapt_date)
-sqlite3.register_converter("DATE", convert_date)
     
 class XenonBot(commands.Bot):
 
@@ -182,21 +171,20 @@ class XenonBot(commands.Bot):
         logging.info(f"We have logged in as {bot.user}!")
 
     async def on_command_error(self, ctx, error):
-        if isinstance(error, commands.MissingPermissions) or isinstance(error, commands.NotOwner):
+        if hasattr(ctx.command, 'on_error'):
+            return
+        if isinstance(error, (commands.MissingPermissions, commands.NotOwner)):
             return await ctx.send(embed=self.error_embed("You do not have the permissions to use this command."))
         if isinstance(error, commands.MissingRequiredArgument):
             return await ctx.send(embed=self.error_embed("Missing required arguments for command. Use $help [command] for example usage."))
-        if (isinstance(error, commands.BadArgument) 
-                or isinstance(error, commands.BadUnionArgument)
-                or isinstance(error, commands.NoPrivateMessage) 
-                or isinstance(error, commands.BotMissingPermissions)):
+        if (isinstance(error, (commands.BadArgument, commands.BadUnionArgument, commands.NoPrivateMessage, commands.BotMissingPermissions))):
             return await ctx.send(embed=self.error_embed(str(error)))
         logging.error(f"{type(error)}: {error}")
         raise error
 
-    def error_embed(self, message):
+    def error_embed(self, message, *, error="Error"):
         """Helper function to produce an error embed."""
-        return discord.Embed(title="Error", description = message, colour=discord.Colour.red())
+        return discord.Embed(title=error, description = message, colour=discord.Colour.red())
 
     async def on_message(self, message):
         if message.author.bot or message.author.id in self.blacklist:
@@ -205,7 +193,11 @@ class XenonBot(commands.Bot):
 
 
 logging.info("Starting up the bot.")
-bot = XenonBot(command_prefix=command_prefixes, help_command=EmbedHelpCommand())
+bot = XenonBot(
+    command_prefix=command_prefixes, 
+    help_command=EmbedHelpCommand(),
+    intents=discord.Intents.all()
+)
 
 ### Commands to load cogs ###
 

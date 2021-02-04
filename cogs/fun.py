@@ -1,8 +1,6 @@
 import discord
 from discord.ext import commands
-import pickle
 import logging
-from os.path import join
 import sqlite3
 
 def lowercase_string(argument):
@@ -149,6 +147,7 @@ emoji = {
     's1': '🇸',
     's2': '💲',
     't1': '🇹',
+    't2': '✝️',
     'u1': '🇺',
     'v1': '🇻',
     'w1': '🇼',
@@ -157,7 +156,16 @@ emoji = {
     'z1': '🇿',
     '!1': '❗',
     '?1': '❓',
-    ' 1': '🟦'
+    ' 1': '🟦',
+    '11': '1️⃣', 
+    '21': '2️⃣',
+    '31': '3️⃣',
+    '41': '4️⃣',
+    '51': '5️⃣',
+    '61': '6️⃣',
+    '71': '7️⃣',
+    '81': '8️⃣',
+    '91': '9️⃣'
 }
 
 def setup(bot):
