@@ -13,7 +13,7 @@ from discord.ext import commands, tasks
 from cogs.helper import schedule_task
 
 NSSG_ID = 692230983650377731
-CHANNEL_ID = 805453154626961449
+CHANNEL_ID = 729654637677903926
 
 class Date(commands.Converter):
     """Convert the input into `datetime.date` if possible."""
