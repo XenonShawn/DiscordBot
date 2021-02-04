@@ -5,6 +5,7 @@ import asyncio
 import logging
 from typing import Union
 from os.path import isfile
+import logging
 
 import aiohttp
 import discord
@@ -52,7 +53,7 @@ class Nssg(commands.Cog, name='nssg'):
 
         now = datetime.now()
         seconds_since_midnight = (now - now.replace(hour=0, minute=0, second=0)).total_seconds()
-        print(86400 - seconds_since_midnight, "seconds to midnight.")
+        logging.log(86400 - seconds_since_midnight, "seconds to midnight.")
         # Update enlistment messages every 12am + 5 seconds
         self.task = schedule_task(self.bot.loop, 86405 - seconds_since_midnight, self.enlistmentmessages.start)
 

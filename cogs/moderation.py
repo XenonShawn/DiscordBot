@@ -1,7 +1,5 @@
 from datetime import datetime, timedelta
-from os.path import join
 from collections import defaultdict
-import sqlite3
 import logging
 import typing
 import asyncio
@@ -9,10 +7,7 @@ import asyncio
 import discord
 from discord.ext import commands
 
-if __name__ == "cogs.moderation":
-    from cogs.helper import Duration, schedule_task, PositiveInt, smart_send
-else:
-    from helper import Duration, PositiveInt, schedule_task, smart_send
+from cogs.helper import Duration, schedule_task, PositiveInt, smart_send
 
 
 class BannedUser(commands.Converter):
@@ -76,12 +71,14 @@ class Moderation(commands.Cog, name='moderation'):
             guild = self.bot.get_guild(row[0])
             if guild is None:
                 self.update_modlog(row[0], row[1])
+                continue
             member = guild.get_member(row[1])
             if member is None:
                 try:
                     member = (await guild.fetch_ban(discord.Object(row[1]))).user
                 except discord.NotFound:
                     self.update_modlog(row[0], row[1])
+                    continue
             try:
                 coro = temp[row[3]](guild, member, row[4])
             except KeyError:
@@ -236,7 +233,7 @@ class Moderation(commands.Cog, name='moderation'):
         """
         # Update database
         time = datetime.now()
-        complete = 1 if duration is None else 0
+        complete = 1 if duration == -1 else 0
         with self.con:
             self.con.execute("""INSERT INTO modlog(guild_id, moderator, moderator_id,
                                                    user, user_id, timestamp,
