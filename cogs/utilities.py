@@ -3,7 +3,7 @@ from discord.ext import commands
 import logging
 import asyncio
 from datetime import datetime, timezone, timedelta
-from cogs.helper import schedule_task, smart_send, Duration # Cog loading is based on where bot.py is
+from cogs.helper import smart_send, Duration # Cog loading is based on where bot.py is
 
 # I could have added a guild-specific timezones, but since I do not intend for
 # this bot to be used by non-Singaporean guilds, I will not over-engineer it.
@@ -27,7 +27,7 @@ class Utility(commands.Cog, name='utilities'):
         for row in self.con.execute("SELECT * FROM reminders"):
             # SQLite3 datetime comes out timezone naive, so need to change the timezone 
             delta = (row[3].replace(tzinfo=timezone(timedelta(hours=TIMEZONE))) - datetime.now(timezone(timedelta(hours=TIMEZONE)))).total_seconds()
-            self.tasks.add(schedule_task(self.loop, delta, self.end_reminder(row)))
+            self.tasks.add(self.bot.schedule_task(delta, self.end_reminder(row)))
             logging.info("Scheduled a reminder task.")
         
     def cog_unload(self):
@@ -89,7 +89,7 @@ class Utility(commands.Cog, name='utilities'):
         row = (ctx.guild.id, ctx.channel.id, message.id, end, text)
         with self.con:
             self.con.execute("INSERT INTO reminders VALUES (?, ?, ?, ?, ?)", row)
-        self.tasks.add(schedule_task(self.loop, duration * 60, self.end_reminder(row)))
+        self.tasks.add(self.bot.schedule_task(duration * 60, self.end_reminder(row)))
 
     async def end_reminder(self, db_row):
         """Function run upon reminder timer up."""
