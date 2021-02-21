@@ -3,11 +3,15 @@ import logging
 from os.path import join
 import sqlite3
 from collections import defaultdict
+import typing
+import asyncio
 
 import discord
+from discord import user
 from discord.ext import commands
 
 from config import token, DEFAULT_PREFIX # Contains token = 'xxx'   
+from cogs.helper import smart_send, error_embed
 
 logging.basicConfig(level=logging.INFO,
                     format='[%(asctime)s] [%(levelname)s] %(message)s',
@@ -91,15 +95,18 @@ class XenonBot(commands.Bot):
         super().__init__(**kwargs)
         self.uptime = None
         self.con = sqlite3.connect(join('data', 'data.db'), detect_types=sqlite3.PARSE_DECLTYPES)
+        self.con.execute("PRAGMA foreign_keys = 1")
         self.guild_prefix = defaultdict(lambda: DEFAULT_PREFIX)
         self.blacklist = set()
 
         # Ensure database exists
         self.con.execute("""CREATE TABLE IF NOT EXISTS settings (
-                                guild_id INTEGER UNIQUE NOT NULL,
-                                prefix TEXT NOT NULL)""")
+                                guild_id    INTEGER PRIMARY KEY NOT NULL,
+                                prefix      TEXT                NOT NULL
+                            )""")
         self.con.execute("""CREATE TABLE IF NOT EXISTS blacklist (
-                                user_id INTEGER UNIQUE NOT NULL)""")
+                                user_id     INTEGER PRIMARY KEY NOT NULL
+                            )""")
 
         # Load guild prefixes and blacklisted users into memory
         for guild_id, prefix in self.con.execute("SELECT guild_id, prefix FROM settings"):
@@ -131,10 +138,54 @@ class XenonBot(commands.Bot):
         """Return the unique guild prefix. Duh."""
         return self.guild_prefix[guild.id]
 
+    ### Helper functions relating to async ###
+
+    def schedule_task(self, sleep_seconds: int, func: typing.Union[typing.Callable, typing.Coroutine]) -> asyncio.Task:
+        """
+        A helper function that schedules a callable to be called `sleep_seconds` in the 
+        future. If `sleep_seconds` is negative, the callback will be called as soon as possible.
+
+        Arguments can be passed in into `func` using `functools.partial`.
+
+        Returns the task object.
+        """
+        if not (callable(func) or asyncio.iscoroutine(func)):
+            raise TypeError("Argument must be callable.")
+        async def coroutine():
+            try:
+                await asyncio.sleep(max(sleep_seconds, 0))
+                if asyncio.iscoroutinefunction(func):
+                    return await func()
+                elif asyncio.iscoroutine(func):
+                    return await func
+                else:
+                    return func()
+            except asyncio.CancelledError:
+                logging.warning("Cancelled unfinished task.")
+        return self.loop.create_task(coroutine())
+
+    async def confirm_response(self, ctx, timeout=10, ask=True) -> bool:
+        positive_responses = {'yes', 'y', 'true', 't', '1', 'enable', 'on'}
+        all_responses = positive_responses | {'no', 'n', 'false', 'f', '0', 'disable', 'off'}        
+
+        def correct_response(message):
+            return message.author == ctx.author and message.channel == ctx.channel and message.content.lower() in all_responses
+
+        try:
+            if ask:
+                await ctx.send("Are you sure? (Y/N)")
+            response = await self.wait_for('message', check=correct_response, timeout=timeout)
+        except asyncio.TimeoutError:
+            if ask:
+                await ctx.send("No proper response detected.")
+            return False
+
+        return response.content.lower() in positive_responses
+
     # Blacklist functions
-    async def blacklist_user(self, ctx, user: discord.User):
+    async def blacklist_user(self, ctx, user: typing.Union[discord.User, int]):
         """Globally blacklist a user from using the bot."""
-        identity = user.id
+        identity = user if type(user) == int else user.id
         if identity == self.owner_id:
             return await ctx.send("The owner of the bot cannot be blacklisted.")
         try:
@@ -147,9 +198,9 @@ class XenonBot(commands.Bot):
             logging.info(f"{user} blacklisted.")
             return await ctx.send(f"{user} is now blacklisted.")
 
-    async def unblacklist_user(self, ctx, user: discord.User):
+    async def unblacklist_user(self, ctx, user: typing.Union[discord.User, int]):
         """Remove a user from the global blacklist."""
-        identity = user.id
+        identity = user if type(user) == int else user.id
         if identity not in self.blacklist:
             return await ctx.send(f"{user} is not in the global blacklist.")
         else:
@@ -161,8 +212,19 @@ class XenonBot(commands.Bot):
 
     async def check_blacklist(self, ctx):
         """Prints to console the users in the global blacklist."""
+        message = ""
         for user_id in self.blacklist:
-            print(user_id)
+            message += f"{user_id}: "
+            try:
+                blacklisted_user = self.get_user(user_id) or await self.fetch_user(user_id)
+                message += blacklisted_user.name + '#' + blacklisted_user.discriminator
+            except discord.NotFound:
+                message += "User Not Found"
+            except discord.HTTPException:
+                message += "HTTP Error"
+            finally:
+                message += '\n'
+        await smart_send(ctx, message)
 
     # Listeners
     async def on_ready(self):
@@ -174,17 +236,13 @@ class XenonBot(commands.Bot):
         if hasattr(ctx.command, 'on_error'):
             return
         if isinstance(error, (commands.MissingPermissions, commands.NotOwner)):
-            return await ctx.send(embed=self.error_embed("You do not have the permissions to use this command."))
+            return await ctx.send(embed=error_embed("You do not have the permissions to use this command."))
         if isinstance(error, commands.MissingRequiredArgument):
-            return await ctx.send(embed=self.error_embed("Missing required arguments for command. Use $help [command] for example usage."))
+            return await ctx.send(embed=error_embed(f"Missing required arguments for command. Use {ctx.prefix}help [command] for example usage."))
         if (isinstance(error, (commands.BadArgument, commands.BadUnionArgument, commands.NoPrivateMessage, commands.BotMissingPermissions))):
-            return await ctx.send(embed=self.error_embed(str(error)))
+            return await ctx.send(embed=error_embed(str(error)))
         logging.error(f"{type(error)}: {error}")
         raise error
-
-    def error_embed(self, message, *, error="Error"):
-        """Helper function to produce an error embed."""
-        return discord.Embed(title=error, description = message, colour=discord.Colour.red())
 
     async def on_message(self, message):
         if message.author.bot or message.author.id in self.blacklist:
