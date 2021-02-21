@@ -1,6 +1,7 @@
+from datetime import datetime
+
 import discord
 from discord.ext import commands
-from datetime import datetime
 
 class Admin(commands.Cog, name='admin'):
 
@@ -19,13 +20,13 @@ class Admin(commands.Cog, name='admin'):
         delta = datetime.today() - self.bot.uptime
         time = (delta.days, delta.seconds // 3600, delta.seconds // 60 % 60, delta.seconds % 60)
 
-        def helper(quantity):
+        def helper(quantity: int) -> str:
             return "s" if quantity != 1 else ''
 
         text = f"{time[0]} day" + helper(time[0])
         text += f", {time[1]} hour" + helper(time[1])
         text += f", {time[2]} minute" + helper(time[2])
-        text += f", {time[3]} second" + helper(time[3]) + '.'
+        text += f", {time[3]} second" + helper(time[3])
 
         return await ctx.send(embed=discord.Embed(title="Uptime", description=text, colour=discord.Colour.blue()))
             
