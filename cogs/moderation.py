@@ -7,7 +7,7 @@ import asyncio
 import discord
 from discord.ext import commands
 
-from cogs.helper import Duration, schedule_task, PositiveInt, smart_send
+from cogs.helper import Duration, PositiveInt, smart_send
 
 
 class BannedUser(commands.Converter):
@@ -60,6 +60,8 @@ class Moderation(commands.Cog, name='moderation'):
                 task.cancel()
 
     async def restart_tasks(self):
+
+        ### TO DO NEED WAIT FOR BOT TO BE READY FIRST
         temp = {
             'mute': self.unmute_helper,
             'ban': self.unban_helper
