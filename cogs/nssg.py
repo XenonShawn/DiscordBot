@@ -11,8 +11,6 @@ import aiohttp
 import discord
 from discord.ext import commands, tasks
 
-from cogs.helper import schedule_task
-
 NSSG_ID = 692230983650377731
 CHANNEL_ID = 729654637677903926
 
@@ -47,15 +45,14 @@ class Nssg(commands.Cog, name='nssg'):
                             num_choices INTEGER
         )""")
 
-        latestEnlistmentMessage = self.con.execute("SELECT date FROM enlistmentmsgs ORDER BY date DESC").fetchone()
-        self.lastUpdatedJSON = date.fromisoformat(latestEnlistmentMessage[0]) if latestEnlistmentMessage else date(1, 1, 1)
+        self.lastUpdatedJSON =  date(1, 1, 1)
         self.enlistmentmsgpooling = set()
 
         now = datetime.now()
-        seconds_since_midnight = (now - now.replace(hour=0, minute=0, second=0)).total_seconds()
-        logging.info(str(86400 - seconds_since_midnight) + " seconds to midnight.")
+        seconds_to_midnight = 86400 - (now - now.replace(hour=0, minute=0, second=0)).total_seconds()
+        logging.info(str(seconds_to_midnight) + " seconds to midnight.")
         # Update enlistment messages every 12am + 5 seconds
-        self.task = schedule_task(self.bot.loop, 86405 - seconds_since_midnight, self.enlistmentmessages.start)
+        self.task = self.bot.schedule_task(seconds_to_midnight + 5, self.enlistmentmessages.start)
 
     def cog_unload(self):
         if not self.task.cancelled():
@@ -121,7 +118,8 @@ class Nssg(commands.Cog, name='nssg'):
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(endpoint) as response:
-                    data = json.loads(await response.read())
+                    website_text = await response.read()
+                    data = json.loads(website_text)
 
             events = defaultdict(list)
             today = date.today()
@@ -129,9 +127,9 @@ class Nssg(commands.Cog, name='nssg'):
             # Format the received data
             for event in data["calendarEventList"][1:]:
 
-                # Skip if the event date is before current date and after 60 days
+                # Skip if the event date is before current date and after 120 days
                 eventDate = datetime.strptime(event['startDate'], '%b %d, %Y').date()
-                if not (0 <= (eventDate - today).days <= 60):
+                if not (0 <= (eventDate - today).days <= 120):
                     continue
                 
                 # Ensure category isn't a public holiday (ie is a BMT enlistment date)
@@ -182,20 +180,21 @@ class Nssg(commands.Cog, name='nssg'):
     @tasks.loop(hours=24)
     async def enlistmentmessages(self):
         
-        today = str(date.today())   # Dates in ISO format are comparable using "<" operators
+        today = date.today()
         channel = await self.bot.fetch_channel(CHANNEL_ID)
 
         events = await self.getEvents()
         eventDatesSorted = sorted(events)
 
         for eventDate in eventDatesSorted:
+            dateObject = date.fromisoformat(eventDate)
             
             # Check date of event, or if event date already exists in database
-            if eventDate <= today or self.con.execute("SELECT * FROM enlistmentmsgs WHERE date = ?", (eventDate, )).fetchone():
+            if dateObject <= today or (dateObject - today).days > 60 or self.con.execute("SELECT * FROM enlistmentmsgs WHERE date = ?", (eventDate, )).fetchone():
                 continue
             
             # Get embed and post it
-            message = await channel.send(embed=self.createEmbed(date.fromisoformat(eventDate), events[eventDate]))
+            message = await channel.send(embed=self.createEmbed(dateObject, events[eventDate]))
             for i in range(len(events[eventDate])):
                 # Add reactions
                 await message.add_reaction(numbers[i])
@@ -226,12 +225,12 @@ class Nssg(commands.Cog, name='nssg'):
             if info and emojis.get(payload.emoji.name, 100) <= info[2]:
                 return await self.update_members(payload, info[2])
     
-    async def update_members(self, payload: discord.RawReactionActionEvent, num: int):
+    async def update_members(self, payload: discord.RawReactionActionEvent, num: int) -> None:
         # Pool the messages to reduce number of times needed to edit
         if payload.message_id in self.enlistmentmsgpooling:
             return
         self.enlistmentmsgpooling.add(payload.message_id)
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.2)
 
         # Need to get message instance again since reactions don't update
         channel = self.bot.get_channel(payload.channel_id)
