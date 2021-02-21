@@ -1,7 +1,9 @@
-import discord
-from discord.ext import commands
 import logging
 import sqlite3
+from collections import Counter
+
+import discord
+from discord.ext import commands
 
 def lowercase_string(argument):
     return argument.lower()
@@ -68,105 +70,80 @@ class Fun(commands.Cog, name='fun'):
             text = text[:-2] + '.'
         return await ctx.send(text)
 
-    async def textemoji(self, ctx, message: discord.Message, string: str):
+    async def textemoji(self, message: discord.Message, string: str):
         """Converts the string to unicode emojis."""
-        # Ugly code
-        string = string.lower()
-        repeats = dict()
-        ok = True
-        i = 0
-        while i < len(string):
-            letter = string[i]
-            # Checks for OK
-            if ok and letter == 'o':
-                if string[i:].startswith('ok'):
-                    # Set ok flag to false so it doesn't get called again
-                    ok = False
-                    await message.add_reaction(emoji['ok'])
-                    i += 2
-                    continue
-            # Checks if letter was used before.
-            repeats[letter] = 1 + repeats.get(letter, 0)
+        string = string.replace('ok', '🆗', 1)        
+        repeats = Counter()
+        for ch in string:
             try:
-                await message.add_reaction(emoji[letter + str(repeats[letter])])
-            except KeyError:
-                i += 1
+                await message.add_reaction(emoji[ch][repeats[ch]])
+                repeats[ch] += 1
+            except IndexError:
                 continue
-            i += 1
-        # return await ctx.message.delete()
     
     @commands.command()
-    async def react(self, ctx, text: str, message: discord.Message):
+    async def react(self, ctx, text: lowercase_string, message: discord.Message):
         """Sets the reacts of a message, if allowed in the allowed reactions list.
         'text' is the reaction text and 'message' is the message_id or the link of the message to be reacted.
         Example Usage: $react okboomer https://discordapp.com/channels/655024044/7078986/716643449"""
 
         if self.con.execute("SELECT * FROM allowedreacts WHERE guild_id = ? AND word = ?", (ctx.guild.id, text)).fetchone():
-            return await self.textemoji(ctx, message, text)
+            await ctx.message.delete()
+            return await self.textemoji(message, text)
         else:
-            return await ctx.send(f"{text} is not an allowed reaction.")
+            return await ctx.send(f"`{text}` is not an allowed reaction.")
 
     @commands.command()
     @commands.has_permissions(manage_guild=True)
-    async def adminreact(self, ctx, text: str, message_id: str):
+    async def adminreact(self, ctx, text: lowercase_string, message: discord.Message):
         """Sets the reacts of a message. Skips checking allowed reactions.
         'text' is the reaction text and 'message' is the message_id of the message to be reacted.
         Example Usage: $react omg 123456789"""
-        message = await ctx.channel.fetch_message(message_id[-18:])
-        return await self.textemoji(ctx, message, text)
+        await ctx.message.delete()
+        return await self.textemoji(message, text)
 
 emoji = {
-    'a1': '🇦',
-    'a2': '🅰️',
-    'b1': '🇧',
-    'b2': '🅱️',
-    'c1': '🇨',
-    'c2': '©️',
-    'd1': '🇩',
-    'e1': '🇪',
-    'f1': '🇫',
-    'g1': '🇬',
-    'h1': '🇭',
-    'i1': '🇮',
-    'i2': 'ℹ️',
-    'j1': '🇯',
-    'k1': '🇰',
-    'l1': '🇱',
-    'm1': '🇲',
-    'm2': 'Ⓜ️',
-    'n1': '🇳',
-    'o1': '🇴',
-    'o2': '🅾️',
-    'o3': '⭕',
-    'ok': '🆗',
-    'p1': '🇵',
-    'p2': '🅿️',
-    'q1': '🇶',
-    'r1': '🇷',
-    'r2': '®️',
-    's1': '🇸',
-    's2': '💲',
-    't1': '🇹',
-    't2': '✝️',
-    'u1': '🇺',
-    'v1': '🇻',
-    'w1': '🇼',
-    'x1': '🇽',
-    'y1': '🇾',
-    'z1': '🇿',
-    '!1': '❗',
-    '?1': '❓',
-    ' 1': '🟦',
-    '11': '1️⃣', 
-    '21': '2️⃣',
-    '31': '3️⃣',
-    '41': '4️⃣',
-    '51': '5️⃣',
-    '61': '6️⃣',
-    '71': '7️⃣',
-    '81': '8️⃣',
-    '91': '9️⃣'
+    'a': ['🇦', '🅰️'], 
+    'b': ['🇧', '🅱️'], 
+    'c': ['🇨', '©️'], 
+    'd': ['🇩'], 
+    'e': ['🇪'], 
+    'f': ['🇫'], 
+    'g': ['🇬'], 
+    'h': ['🇭'], 
+    'i': ['🇮', 'ℹ️'], 
+    'j': ['🇯'], 
+    'k': ['🇰'], 
+    'l': ['🇱'], 
+    'm': ['🇲', 'Ⓜ️'],
+    'n': ['🇳'], 
+    'o': ['🇴', '🅾️', '⭕'], 
+    'p': ['🇵', '🅿️'], 
+    'q': ['🇶'], 
+    'r': ['🇷', '®️'], 
+    's': ['🇸', '💲'], 
+    't': ['🇹', '✝'], 
+    'u': ['🇺'], 
+    'v': ['🇻'], 
+    'w': ['🇼'], 
+    'x': ['🇽'], 
+    'y': ['🇾'], 
+    'z': ['🇿'], 
+    '!': ['❗'], 
+    '?': ['❓'], 
+    ' ': ['🟦'],  
+    '1': ['1️⃣'], 
+    '2': ['2️⃣'], 
+    '3': ['3️⃣'], 
+    '4': ['4️⃣'], 
+    '5': ['5️⃣'], 
+    '6': ['6️⃣'], 
+    '7': ['7️⃣'], 
+    '8': ['8️⃣'], 
+    '9': ['9️⃣'],
+    '🆗': ['🆗']
 }
 
 def setup(bot):
     bot.add_cog(Fun(bot))
+    
