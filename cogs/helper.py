@@ -82,8 +82,6 @@ _MAIN_SUBREGEX += '|' + r"^> .+$"
 #   .+              Rest of the line is a quote
 #   $"              Stops at the end of the line
 
-_MAIN_SUBREGEX
-
 def find_char(string: str, char: str, *, reverse: bool=False) -> typing.Tuple[int, ...]:
     """
     Finds all instances of a single char in a string, and return a list of their indices.
@@ -122,24 +120,25 @@ def smart_split(message: str, sep: int=2000) -> typing.List[str]:
     for item in markdown_positions:
         invalid_positions.update(range(item[0], item[1]))
 
-    def find_valid(string: str):
+    def find_valid(string: str, index_of_beginning: int):
         for char in ('\n', ' '):
             for idx in find_char(string, char, reverse=True):
-                if idx not in invalid_positions:
+                if idx and idx+index_of_beginning not in invalid_positions:
                     return idx
         # Can't find appropriate line break or space
         for idx in range(sep, 0, -1):
-            if idx not in invalid_positions:
+            if idx+index_of_beginning not in invalid_positions:
                 return idx
         # Just return seperation value
         return sep
 
     result = list()
-    while len(message) > sep:
-        idx = find_valid(message[:sep]) # Get the best index to split the string at
-        result.append(message[:idx])
-        message = message[idx:].strip()
-    result.append(message) # Append remaining
+    beginning = 0   # Index of the string which we are working
+    while len(message) - beginning > sep:
+        idx = find_valid(message[beginning:beginning+sep], beginning) # Get the best index to split the string at
+        result.append(message[beginning:beginning+idx].strip())
+        beginning += idx
+    result.append(message[beginning:].strip()) # Append remaining
 
     return result
     
