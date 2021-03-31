@@ -54,6 +54,8 @@ class Nssg(commands.Cog, name='nssg'):
         # Update enlistment messages every 12am + 5 seconds
         self.task = self.bot.schedule_task(seconds_to_midnight + 5, self.enlistmentmessages.start)
 
+        self.aprilFools = set()
+
     def cog_unload(self):
         if not self.task.cancelled():
             self.task.cancel()
@@ -64,7 +66,7 @@ class Nssg(commands.Cog, name='nssg'):
     ################################################################################
 
     @commands.command()
-    async def ord(self, ctx, *, ord_date: Union[discord.Member, Date]=None):
+    async def ord(self, ctx: commands.Context, *, ord_date: Union[discord.Member, Date]=None):
         """
         Return how many days left to/since your ORD.
         Use $ord [day]/[month]/[year] to set your ORD.
@@ -72,6 +74,14 @@ class Nssg(commands.Cog, name='nssg'):
         Example: To set your ORD to 29/02/2020, use $ord 29/02/2020
         Example: To check days to ORD, use $ord
         """
+        if not ord_date and ctx.author.id not in self.aprilFools and date.today() == date(2021, 4, 1):
+            self.aprilFools.add(ctx.author.id)
+            await ctx.send("Searching for your ORD...")
+            await asyncio.sleep(3)
+            await ctx.send("Please wait a bit longer...")
+            await asyncio.sleep(2)
+            return await ctx.send("Error 404: ORD NOT FOUND. GOVERNMENT PROPERTY NO ORD.")
+
         if ord_date is None or type(ord_date) == discord.Member:
             result = self.con.execute("SELECT ord FROM nssg WHERE user_id = ?", (ord_date.id if ord_date else ctx.author.id, )).fetchone()
             if result is None:
